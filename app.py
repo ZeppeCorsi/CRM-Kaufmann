@@ -27,16 +27,19 @@ def carregar_aba(nome_aba):
         data = worksheet.get_all_records()
         if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
-        df = df.fillna("").astype(str).replace("nan", "")
+        df = df.fillna("").astype(str)
+        # Limpeza: Colunas em MAIÚSCULO e sem espaços extras nas pontas
         df.columns = [str(c).strip().upper() for c in df.columns]
+        
         if nome_aba == "Agendamentos" and "DATA" in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA'], errors='coerce', dayfirst=True).dt.date
-            if "HORA" in df.columns:
-                df = df.sort_values(by=["DATA_DT", "HORA"])
+            df = df.sort_values(by=["DATA_DT", "HORA"])
         return df
     except Exception as e:
         st.error(f"Erro ao carregar {nome_aba}: {e}")
         return pd.DataFrame()
+
+# ... (Funções salvar_e_atualizar e atualizar_visita_gs permanecem iguais) ...
 
 def salvar_e_atualizar(novo_df):
     try:
@@ -94,8 +97,9 @@ menu = st.sidebar.radio("Menu", ["📅 Calendário Comercial", "➕ Novo Agendam
 if menu == "📅 Calendário Comercial":
     st.title("📅 Calendário de Visitas")
     df_ag = carregar_aba("Agendamentos")
-    if 'mes_ref' not in st.session_state: st.session_state.mes_ref = date.today().replace(day=1)
     
+    # ... (Lógica de navegação de meses permanece igual) ...
+    if 'mes_ref' not in st.session_state: st.session_state.mes_ref = date.today().replace(day=1)
     c1, c2, c3 = st.columns([1, 2, 1])
     if c1.button("⬅️ Anterior"):
         st.session_state.mes_ref = (st.session_state.mes_ref - timedelta(days=1)).replace(day=1)
@@ -122,13 +126,26 @@ if menu == "📅 Calendário Comercial":
                     for idx, v in visitas.iterrows():
                         realizada = str(v.get('REALIZADA', '')).upper() == "SIM"
                         cor = "✅" if realizada else "📍"
-                        with st.expander(f"{cor} {v.get('HORA','--')} {v.get('CLIENTE','')[:10]}"):
-                            st.markdown(f"**👤 Cliente:** {v.get('CLIENTE')}")
-                            st.markdown(f"**📞 Contato:** {v.get('CONTATO','N/A')}")
-                            st.markdown(f"**🎯 Finalidade:** {v.get('FINALIDADE DA VISITA','N/A')}")
-                            st.markdown(f"**💰 Valor:** R$ {v.get('VALOR TOTAL','0,00')}")
+                        
+                        # MAPEAMENTO DE COLUNAS (Ajustado para o que você informou)
+                        cli = v.get('CLIENTE', 'N/A')
+                        # Tentamos pegar NOME DO CONTATO ou CONTATO (o que existir)
+                        con = v.get('NOME DO CONTATO') or v.get('CONTATO', 'N/A')
+                        fin = v.get('FINALIDADE', 'N/A')
+                        vlr = v.get('VALOR TOTAL', '0,00')
+                        hora = v.get('HORA', '--:--')
+
+                        with st.expander(f"{cor} {hora} {cli[:10]}"):
+                            st.markdown(f"**👤 Cliente:** {cli}")
+                            st.markdown(f"**📞 Contato:** {con}")
+                            st.markdown(f"**🎯 Finalidade:** {fin}")
+                            st.markdown(f"**💰 Valor:** R$ {vlr}")
+                            
+                            st.divider()
                             st.caption(f"📝 {v.get('DETALHES  DA VISITA','')}")
-                            if st.button("Finalizar", key=f"fin_{idx}"): popup_finalizar_visita(idx, v['CLIENTE'])
+                            
+                            if st.button("Finalizar", key=f"fin_{idx}"): 
+                                popup_finalizar_visita(idx, cli)
 
 elif menu == "➕ Novo Agendamento":
     st.title("➕ Novo Agendamento")
@@ -140,42 +157,44 @@ elif menu == "➕ Novo Agendamento":
     finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA"])
     hora_v = col3.time_input("Hora", value=time(9, 0))
 
-    # Lógica de Cruzamento de Dados
-    cliente_f = ""; vlr_f = "0,00"; orc_num = ""; endereco_f = ""; contato_f = ""
+    cliente_f = ""; vlr_f = "0,00"; orc_num = ""; endereco_f = ""
 
     if not df_para.empty:
-        lista_cli = sorted(df_para["CLIENTE"].unique().tolist()) if "CLIENTE" in df_para.columns else []
+        # Pega a coluna CLIENTE independente de onde ela esteja
+        col_cli = [c for c in df_para.columns if 'CLIENTE' in c]
+        lista_cli = sorted(df_para[col_cli[0]].unique().tolist()) if col_cli else []
         cliente_f = st.selectbox("Selecione o Cliente", options=lista_cli)
         
         if cliente_f:
-            # 1. Pega Valor e Endereço da aba 'Para_Agendar'
-            dados_cli = df_para[df_para["CLIENTE"] == cliente_f]
+            dados_cli = df_para[df_para[col_cli[0]] == cliente_f]
             if not dados_cli.empty:
                 vlr_f = dados_cli.iloc[0].get("VLR TOTAL", "0,00")
                 endereco_f = dados_cli.iloc[0].get("ENDEREÇO", "")
             
-            # 2. Pega o Orçamento da aba 'Orcamentos Gerais'
             if not df_orc_gerais.empty:
                 dados_orc = df_orc_gerais[df_orc_gerais["CLIENTE"] == cliente_f]
                 if not dados_orc.empty:
                     orc_num = dados_orc.iloc[0].get("ORCAMENTO", "")
 
     with st.form("f_final"):
-        contato_f = st.text_input("Nome do Contato")
+        contato_f = st.text_input("Nome do Contato") # Aqui você preenche
         obs = st.text_area("Observações Adicionais")
+        
         if st.form_submit_button("CONFIRMAR AGENDAMENTO"):
             detalhes = f"Endereço: {endereco_f} | Obs: {obs}"
+            # AS COLUNAS ABAIXO DEVEM SER IGUAIS À SUA PLANILHA AGENDAMENTOS
             novo = pd.DataFrame([{
                 "DATA": data_v.strftime("%d/%m/%Y"), 
                 "HORA": hora_v.strftime("%H:%M"),
-                "FINALIDADE DA VISITA": finalidade, 
+                "FINALIDADE": finalidade, # Salva como 'Finalidade'
                 "CLIENTE": cliente_f,
                 "ORCAMENTO": orc_num, 
                 "VALOR TOTAL": vlr_f, 
                 "REALIZADA": "NAO", 
                 "DETALHES  DA VISITA": detalhes, 
-                "CONTATO": contato_f,
-                "DATA FOLLOW": "", "NOVO ORCAMENTO": ""
+                "NOME DO CONTATO": contato_f, # Salva como 'Nome do contato'
+                "DATA FOLLOW": "", 
+                "NOVO ORCAMENTO": ""
             }])
             if salvar_e_atualizar(novo):
                 st.balloons(); st.success("Agendado!"); t_module.sleep(1); st.rerun()
