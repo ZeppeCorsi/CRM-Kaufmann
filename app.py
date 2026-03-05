@@ -136,6 +136,17 @@ if menu == "📅 Calendário Comercial":
 
 elif menu == "➕ Novo Agendamento":
     st.title("➕ Novo Agendamento")
+    
+    # Função interna para formatar moeda (ex: 27936 -> 27.936,00)
+    def formatar_br(valor_str):
+        try:
+            # Remove símbolos e garante que o decimal seja ponto para o Python
+            limpo = str(valor_str).replace("R$", "").replace(".", "").replace(",", ".").strip()
+            valor_float = float(limpo)
+            return f"{valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except:
+            return valor_str # Retorna o original se não for número
+
     df_para = carregar_aba("Para_Agendar")
     df_orc_gerais = carregar_aba("Orcamentos Gerais")
 
@@ -144,7 +155,6 @@ elif menu == "➕ Novo Agendamento":
     finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA"])
     hora_v = col3.time_input("Hora", value=time(9, 0))
 
-    # Inicialização das variáveis
     cliente_f = ""; vlr_f = "0,00"; orc_num = "Não localizado"; endereco_f = ""
 
     if not df_para.empty:
@@ -153,22 +163,21 @@ elif menu == "➕ Novo Agendamento":
         cliente_f = st.selectbox("Selecione o Cliente", options=[""] + lista_cli)
         
         if cliente_f:
-            # Busca Valor e Endereço (usando strip para evitar erros de espaços)
             dados_cli = df_para[df_para[col_cli[0]].str.strip() == cliente_f.strip()]
             if not dados_cli.empty:
-                vlr_f = dados_cli.iloc[0].get("VLR TOTAL", "0,00")
+                vlr_raw = dados_cli.iloc[0].get("VLR TOTAL", "0,00")
+                vlr_f = formatar_br(vlr_raw) # APLICA FORMATAÇÃO AQUI
                 endereco_f = dados_cli.iloc[0].get("ENDEREÇO", "")
             
-            # Busca Orçamento
             if not df_orc_gerais.empty:
                 dados_orc = df_orc_gerais[df_orc_gerais["CLIENTE"].str.strip() == cliente_f.strip()]
                 if not dados_orc.empty:
                     orc_num = dados_orc.iloc[0].get("ORCAMENTO", "Não localizado")
             
-            # --- EXIBIÇÃO DOS CAMPOS ENCONTRADOS ---
             c_vlr, c_orc = st.columns(2)
             c_vlr.metric("💰 Valor Estimado", f"R$ {vlr_f}")
             c_orc.metric("📄 Orçamento Vinculado", orc_num)
+            
             if endereco_f:
                 st.info(f"📍 **Endereço:** {endereco_f}")
 
@@ -187,7 +196,7 @@ elif menu == "➕ Novo Agendamento":
                     "FINALIDADE": finalidade,
                     "CLIENTE": cliente_f,
                     "ORCAMENTO": orc_num if orc_num != "Não localizado" else "", 
-                    "VALOR TOTAL": vlr_f, 
+                    "VALOR TOTAL": vlr_f, # Salva já formatado na planilha
                     "REALIZADA": "NAO", 
                     "DETALHES  DA VISITA": detalhes, 
                     "NOME DO CONTATO": contato_f,
