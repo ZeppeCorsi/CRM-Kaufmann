@@ -12,11 +12,9 @@ import time as t_module # Importado para o delay do sucesso
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Transforma o segredo em dicionário editável (Evita erro de 'item assignment')
     creds_info = st.secrets["gcp_service_account"].to_dict()
     
     if "private_key" in creds_info:
-        # Limpeza robusta da chave para evitar erro <Response [200]>
         pk = creds_info["private_key"].strip().strip('"').strip("'")
         pk = pk.replace("\\n", "\n")
         creds_info["private_key"] = pk
@@ -24,7 +22,6 @@ def conectar_google_sheets():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
     client = gspread.authorize(creds)
     
-    # Seu ID atualizado
     ID_PLANILHA = "1FI41GZwLTglXT4SAXIEyY53AXuheQg7gb_3pz9pWer0"
     
     return client.open_by_key(ID_PLANILHA)
@@ -37,7 +34,6 @@ def carregar_aba(nome_aba):
         if not data: return pd.DataFrame()
         
         df = pd.DataFrame(data)
-        # Limpeza de dados: remove 'nan' e espaços extras
         df = df.fillna("").astype(str).replace("nan", "")
         df.columns = [str(c).strip().upper() for c in df.columns]
         
@@ -69,7 +65,6 @@ def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detal
         worksheet = sh.worksheet("Agendamentos")
         linha = int(indice_original) + 2
         
-        # Atualiza colunas (Certifique-se que G, L e O batem com sua planilha)
         worksheet.update_acell(f'G{linha}', "SIM") # REALIZADA
         worksheet.update_acell(f'L{linha}', data_follow.strftime("%d/%m/%Y")) # FOLLOW-UP
         worksheet.update_acell(f'O{linha}', novo_orc_resp) # NOVO ORÇAMENTO
@@ -84,7 +79,6 @@ def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detal
         st.error(f"Erro ao finalizar: {e}")
         return False
 
-# --- FUNÇÃO OUTLOOK ---
 def gerar_link_outlook(cliente, data, hora, finalidade, detalhes, contato):
     assunto = f"Agendamento de Visita - {cliente} ({data})"
     corpo = f"Olá,\n\nCliente: {cliente}\nData: {data} às {hora}\nFinalidade: {finalidade}\nContato: {contato}\n\nDetalhes:\n{detalhes}"
@@ -95,7 +89,6 @@ st.set_page_config(page_title="Kaufmann CRM", layout="wide")
 LOGO_PATH = "Logo_Kaufmann.jpg"
 if os.path.exists(LOGO_PATH): st.sidebar.image(LOGO_PATH, use_container_width=True)
 
-# --- POPUP FINALIZAR ---
 @st.dialog("Finalizar Visita Realizada")
 def popup_finalizar_visita(idx, cliente):
     st.write(f"Resultado da visita: **{cliente}**")
@@ -106,7 +99,7 @@ def popup_finalizar_visita(idx, cliente):
         if not relato: 
             st.warning("Conteúdo obrigatório.")
         elif atualizar_visita_gs(idx, novo_orc, follow, relato):
-            st.balloons() # Celebração ao finalizar
+            st.balloons()
             st.success("✅ Visita finalizada e atualizada!")
             t_module.sleep(2)
             st.rerun()
@@ -142,20 +135,38 @@ if menu == "📅 Calendário Comercial":
             with cols[i]:
                 data_atual = date(st.session_state.mes_ref.year, st.session_state.mes_ref.month, dia)
                 st.markdown(f"**{dia}**")
+                
                 if not df_ag.empty and 'DATA_DT' in df_ag.columns:
                     visitas = df_ag[df_ag['DATA_DT'] == data_atual]
                     for idx, v in visitas.iterrows():
-                        realizada = str(v.get('REALIZADA')).upper() == "SIM"
+                        realizada = str(v.get('REALIZADA', '')).upper() == "SIM"
                         cor = "✅" if realizada else "📍"
-                        with st.expander(f"{cor} {v.get('HORA','')} {v['CLIENTE'][:10]}"):
-                            st.write(f"**Cliente:** {v['CLIENTE']}")
-                            st.caption(f"{v.get('DETALHES  DA VISITA')}")
+                        
+                        # --- COLETANDO DADOS PARA O CARD ---
+                        cliente = v.get('CLIENTE', 'Desconhecido')
+                        contato = v.get('CONTATO', 'N/A')
+                        finalidade = v.get('FINALIDADE DA VISITA', 'N/A')
+                        valor = v.get('VALOR TOTAL', '0.00')
+                        hora = v.get('HORA', '--:--')
+                        detalhes_visita = v.get('DETALHES  DA VISITA', '')
+
+                        # Card Expansível
+                        with st.expander(f"{cor} {hora} {cliente[:12]}..."):
+                            st.markdown(f"**👤 Cliente:** {cliente}")
+                            st.markdown(f"**📞 Contato:** {contato}")
+                            st.markdown(f"**🎯 Finalidade:** {finalidade}")
+                            st.markdown(f"**💰 Valor:** R$ {valor}")
                             
-                            link_mail = gerar_link_outlook(v['CLIENTE'], v['DATA'], v.get('HORA',''), v.get('FINALIDADE DA VISITA',''), v.get('DETALHES  DA VISITA',''), v.get('CONTATO',''))
+                            if detalhes_visita:
+                                st.caption(f"📝 {detalhes_visita}")
+                            
+                            # Botões
+                            link_mail = gerar_link_outlook(cliente, v.get('DATA',''), hora, finalidade, detalhes_visita, contato)
                             st.markdown(f'<a href="{link_mail}"><button style="width:100%;">📧 Outlook</button></a>', unsafe_allow_html=True)
+                            
                             if not realizada:
                                 if st.button("Finalizar", key=f"fin_{idx}"): 
-                                    popup_finalizar_visita(idx, v['CLIENTE'])
+                                    popup_finalizar_visita(idx, cliente)
 
 elif menu == "➕ Novo Agendamento":
     st.title("➕ Novo Agendamento")
@@ -218,8 +229,7 @@ elif menu == "➕ Novo Agendamento":
                 }])
                 
                 if salvar_e_atualizar(novo):
-                    st.balloons() # Efeito de balões
                     st.toast(f"Visita para {cliente_f} agendada!", icon="✅")
                     st.success("✅ Agendamento registrado com sucesso!")
-                    t_module.sleep(2) # Pausa para ver o sucesso
+                    t_module.sleep(2)
                     st.rerun()
