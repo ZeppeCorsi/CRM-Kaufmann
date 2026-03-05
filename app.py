@@ -11,25 +11,22 @@ import os
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Transforma o segredo em dicionário comum
+    # Transforma o segredo em dicionário editável
     creds_info = st.secrets["gcp_service_account"].to_dict()
     
     if "private_key" in creds_info:
-        pk = creds_info["private_key"]
-        
-        # LIMPEZA TOTAL: Remove aspas duplas ou simples que sobraram nas pontas
-        pk = pk.strip().strip('"').strip("'")
-        
-        # Garante as quebras de linha
+        # Limpa aspas extras e garante quebras de linha reais
+        pk = creds_info["private_key"].strip().strip('"').strip("'")
         pk = pk.replace("\\n", "\n")
-        
         creds_info["private_key"] = pk
         
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
     client = gspread.authorize(creds)
     
-    # Tente abrir por nome, se der erro 200, use o ID da URL
-    return client.open("Panorama")
+    # SUBSTITUA ABAIXO PELO SEU ID REAL
+    ID_PLANILHA = "1FI41GZwLTglXT4SAXIEyY53AXuheQg7gb_3pz9pWer0"
+    
+    return client.open_by_key(ID_PLANILHA)
 
 def carregar_aba(nome_aba):
     try:
