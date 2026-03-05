@@ -14,10 +14,10 @@ LOGO_PATH = "Logo_Kaufmann.jpg"
 
 # Tabela de acessos (No futuro, podemos puxar isso da planilha)
 USUARIOS = {
-    "adm_kaufmann": {"senha": "123", "perfil": "ADM", "nome": "Administrador"},
-    "coord_vendas": {"senha": "456", "perfil": "COORD", "nome": "Coordenador"},
-    "vendedor_01": {"senha": "789", "perfil": "VEND", "nome": "Vendedor 1"},
-    "vendedor_02": {"senha": "000", "perfil": "VEND", "nome": "Vendedor 2"},
+    "Giuseppe": {"senha": "123", "perfil": "ADM", "nome": "Administrador"},
+    "Rodrigo": {"senha": "ABC", "perfil": "COORD", "nome": "Coordenador"},
+    "Alcides": {"senha": "789", "perfil": "VEND", "nome": "Vendedor 1"},
+    "Andreza": {"senha": "000", "perfil": "VEND", "nome": "Vendedor 2"},
 }
 
 # --- 2. FUNÇÕES DE CONEXÃO E DADOS ---
