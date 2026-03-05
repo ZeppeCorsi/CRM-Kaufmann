@@ -6,16 +6,17 @@ from datetime import datetime, date, timedelta, time
 import calendar
 import urllib.parse
 import os
+import time as t_module # Importado para o delay do sucesso
 
 # --- CONFIGURAÇÃO GOOGLE SHEETS ---
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Transforma o segredo em dicionário editável
+    # Transforma o segredo em dicionário editável (Evita erro de 'item assignment')
     creds_info = st.secrets["gcp_service_account"].to_dict()
     
     if "private_key" in creds_info:
-        # Limpa aspas extras e garante quebras de linha reais
+        # Limpeza robusta da chave para evitar erro <Response [200]>
         pk = creds_info["private_key"].strip().strip('"').strip("'")
         pk = pk.replace("\\n", "\n")
         creds_info["private_key"] = pk
@@ -23,7 +24,7 @@ def conectar_google_sheets():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
     client = gspread.authorize(creds)
     
-    # SUBSTITUA ABAIXO PELO SEU ID REAL
+    # Seu ID atualizado
     ID_PLANILHA = "1FI41GZwLTglXT4SAXIEyY53AXuheQg7gb_3pz9pWer0"
     
     return client.open_by_key(ID_PLANILHA)
@@ -36,7 +37,8 @@ def carregar_aba(nome_aba):
         if not data: return pd.DataFrame()
         
         df = pd.DataFrame(data)
-        df = df.fillna("") # Remove os 'nan' visuais
+        # Limpeza de dados: remove 'nan' e espaços extras
+        df = df.fillna("").astype(str).replace("nan", "")
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         if nome_aba == "Agendamentos" and "DATA" in df.columns:
@@ -52,7 +54,6 @@ def salvar_e_atualizar(novo_df):
     try:
         sh = conectar_google_sheets()
         worksheet = sh.worksheet("Agendamentos")
-        # Converte tudo para string para evitar erro de formato no Sheets
         novo_df = novo_df.astype(str)
         valores = novo_df.values.tolist()
         worksheet.append_rows(valores)
@@ -68,12 +69,11 @@ def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detal
         worksheet = sh.worksheet("Agendamentos")
         linha = int(indice_original) + 2
         
-        # Ajuste as letras das colunas conforme sua planilha real:
+        # Atualiza colunas (Certifique-se que G, L e O batem com sua planilha)
         worksheet.update_acell(f'G{linha}', "SIM") # REALIZADA
         worksheet.update_acell(f'L{linha}', data_follow.strftime("%d/%m/%Y")) # FOLLOW-UP
         worksheet.update_acell(f'O{linha}', novo_orc_resp) # NOVO ORÇAMENTO
         
-        # Adiciona o resultado aos detalhes existentes
         obs_atual = worksheet.acell(f'H{linha}').value or ""
         nova_obs = f"{obs_atual} | RESULTADO: {novos_detalhes}".strip(" | ")
         worksheet.update_acell(f'H{linha}', nova_obs)
@@ -103,9 +103,12 @@ def popup_finalizar_visita(idx, cliente):
     follow = st.date_input("Próxima Data de Follow-up", value=date.today() + timedelta(days=7))
     relato = st.text_area("Descreva o que foi tratado:")
     if st.button("Gravar na Planilha"):
-        if not relato: st.warning("Conteúdo obrigatório.")
+        if not relato: 
+            st.warning("Conteúdo obrigatório.")
         elif atualizar_visita_gs(idx, novo_orc, follow, relato):
-            st.success("Finalizado!")
+            st.balloons() # Celebração ao finalizar
+            st.success("✅ Visita finalizada e atualizada!")
+            t_module.sleep(2)
             st.rerun()
 
 menu = st.sidebar.radio("Menu", ["📅 Calendário Comercial", "➕ Novo Agendamento"])
@@ -113,7 +116,9 @@ menu = st.sidebar.radio("Menu", ["📅 Calendário Comercial", "➕ Novo Agendam
 if menu == "📅 Calendário Comercial":
     st.title("📅 Calendário de Visitas")
     df_ag = carregar_aba("Agendamentos")
-    if 'mes_ref' not in st.session_state: st.session_state.mes_ref = date.today().replace(day=1)
+    
+    if 'mes_ref' not in st.session_state: 
+        st.session_state.mes_ref = date.today().replace(day=1)
     
     c1, c2, c3 = st.columns([1, 2, 1])
     if c1.button("⬅️ Anterior"):
@@ -127,7 +132,8 @@ if menu == "📅 Calendário Comercial":
     cal = calendar.monthcalendar(st.session_state.mes_ref.year, st.session_state.mes_ref.month)
     cols_h = st.columns(7)
     dias_semana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
-    for i, d in enumerate(dias_semana): cols_h[i].markdown(f"<p style='text-align:center;font-weight:bold;'>{d}</p>", unsafe_allow_html=True)
+    for i, d in enumerate(dias_semana): 
+        cols_h[i].markdown(f"<p style='text-align:center;font-weight:bold;'>{d}</p>", unsafe_allow_html=True)
 
     for semana in cal:
         cols = st.columns(7)
@@ -148,7 +154,8 @@ if menu == "📅 Calendário Comercial":
                             link_mail = gerar_link_outlook(v['CLIENTE'], v['DATA'], v.get('HORA',''), v.get('FINALIDADE DA VISITA',''), v.get('DETALHES  DA VISITA',''), v.get('CONTATO',''))
                             st.markdown(f'<a href="{link_mail}"><button style="width:100%;">📧 Outlook</button></a>', unsafe_allow_html=True)
                             if not realizada:
-                                if st.button("Finalizar", key=f"fin_{idx}"): popup_finalizar_visita(idx, v['CLIENTE'])
+                                if st.button("Finalizar", key=f"fin_{idx}"): 
+                                    popup_finalizar_visita(idx, v['CLIENTE'])
 
 elif menu == "➕ Novo Agendamento":
     st.title("➕ Novo Agendamento")
@@ -168,33 +175,51 @@ elif menu == "➕ Novo Agendamento":
         if cliente_f:
             busca = df_para[df_para.iloc[:, 0].astype(str).str.upper() == str(cliente_f).upper()]
             if not busca.empty:
-                endereco_f = busca.iloc[0, 1]; cep_f = busca.iloc[0, 3] if len(busca.columns) > 3 else ""
+                endereco_f = busca.iloc[0, 1]
+                cep_f = busca.iloc[0, 3] if len(busca.columns) > 3 else ""
                 st.success(f"📍 Endereço: {endereco_f}")
             if not df_orc.empty:
                 m = df_orc[df_orc["CLIENTE"].astype(str).str.upper() == str(cliente_f).upper()]
                 if not m.empty:
-                    vlr_f = m.iloc[0].get("VALOR TOTAL", 0); orc_num = m.iloc[0].get("ORCAMENTO", "")
+                    vlr_f = m.iloc[0].get("VALOR TOTAL", 0)
+                    orc_num = m.iloc[0].get("ORCAMENTO", "")
                     st.info(f"💰 Orçamento: {orc_num}")
 
     elif finalidade == "PROSPECCAO":
         c1, c2 = st.columns(2)
-        cliente_f = c1.text_input("Cliente"); contato_f = c2.text_input("Contato")
+        cliente_f = c1.text_input("Cliente")
+        contato_f = c2.text_input("Contato")
         c3, c4 = st.columns(2)
-        tel_f = c3.text_input("Telefone"); email_f = c4.text_input("E-mail")
+        tel_f = c3.text_input("Telefone")
+        email_f = c4.text_input("E-mail")
 
     with st.form("f_final"):
-        if finalidade != "PROSPECCAO": contato_f = st.text_input("Contato")
+        if finalidade != "PROSPECCAO": 
+            contato_f = st.text_input("Contato", value=contato_f)
         obs = st.text_area("Notas Adicionais")
+        
         if st.form_submit_button("CONFIRMAR AGENDAMENTO"):
-            if not cliente_f: st.error("Cliente obrigatório")
+            if not cliente_f: 
+                st.error("Cliente obrigatório")
             else:
                 detalhes = f"END: {endereco_f} | CEP: {cep_f} | TEL: {tel_f} | EMAIL: {email_f} | {obs}"
                 novo = pd.DataFrame([{
-                    "DATA": data_v.strftime("%d/%m/%Y"), "HORA": hora_v.strftime("%H:%M"),
-                    "FINALIDADE DA VISITA": finalidade, "CLIENTE": cliente_f,
-                    "ORCAMENTO": orc_num, "VALOR TOTAL": vlr_f, "REALIZADA": "NAO", 
-                    "DETALHES  DA VISITA": detalhes, "CONTATO": contato_f,
-                    "DATA FOLLOW": "", "NOVO ORCAMENTO": ""
+                    "DATA": data_v.strftime("%d/%m/%Y"), 
+                    "HORA": hora_v.strftime("%H:%M"),
+                    "FINALIDADE DA VISITA": finalidade, 
+                    "CLIENTE": cliente_f,
+                    "ORCAMENTO": orc_num, 
+                    "VALOR TOTAL": vlr_f, 
+                    "REALIZADA": "NAO", 
+                    "DETALHES  DA VISITA": detalhes, 
+                    "CONTATO": contato_f,
+                    "DATA FOLLOW": "", 
+                    "NOVO ORCAMENTO": ""
                 }])
+                
                 if salvar_e_atualizar(novo):
-                    st.success("Agendado!"); st.rerun()
+                    st.balloons() # Efeito de balões
+                    st.toast(f"Visita para {cliente_f} agendada!", icon="✅")
+                    st.success("✅ Agendamento registrado com sucesso!")
+                    t_module.sleep(2) # Pausa para ver o sucesso
+                    st.rerun()
