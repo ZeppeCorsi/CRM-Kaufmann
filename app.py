@@ -10,9 +10,10 @@ import os
 # --- CONFIGURAÇÃO GOOGLE SHEETS ---
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds_dict = st.secrets["gcp_service_account"]
     
-    # Corrige quebras de linha na chave privada
+    # .to_dict() transforma o segredo imutável em um dicionário que podemos editar
+    creds_dict = st.secrets["gcp_service_account"].to_dict()
+    
     if "private_key" in creds_dict:
         creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         
