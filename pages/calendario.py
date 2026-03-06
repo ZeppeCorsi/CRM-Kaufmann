@@ -7,10 +7,14 @@ import calendar
 import time as t_module
 import urllib.parse
 
-# --- 1. TRAVA DE SEGURANÇA ---
+# --- 1. TRAVA DE SEGURANÇA E INICIALIZAÇÃO ---
 if 'logged_in' not in st.session_state or not st.session_state.logged_in:
     st.error("🚨 Acesso negado. Por favor, faça login na página inicial.")
     st.stop()
+
+# CORREÇÃO DO ERRO: Garante que o atributo 'username' exista para o reagendamento
+if 'username' not in st.session_state:
+    st.session_state.username = "Usuario_Logado"
 
 # --- 2. FUNÇÕES DE CONEXÃO E DADOS ---
 def conectar_google_sheets():
@@ -27,7 +31,7 @@ def conectar_google_sheets():
 def carregar_dados_calendario():
     try:
         sh = conectar_google_sheets()
-        # Carrega Agendamentos
+        # Carrega Agendamentos (Onde está o Status e Contato)
         ws_ag = sh.worksheet("Agendamentos")
         df_ag = pd.DataFrame(ws_ag.get_all_records())
         df_ag.columns = [str(c).strip().upper() for c in df_ag.columns]
@@ -40,17 +44,16 @@ def carregar_dados_calendario():
         
         if not df_ag.empty:
             df_ag['DATA_DT'] = pd.to_datetime(df_ag['DATA'], errors='coerce', dayfirst=True).dt.date
-            col_h = "HORARIO" if "HORARIO" in df_ag.columns else "HORA"
             
-            # Cruzamento de abas pelo CLIENTE
+            # Cruzamento para trazer o endereço correto
             if "CLIENTE" in df_para.columns and "A1_END" in df_para.columns:
                 df_end = df_para[['CLIENTE', 'A1_END']].drop_duplicates(subset=['CLIENTE'])
                 df_ag = pd.merge(df_ag, df_end, on='CLIENTE', how='left')
             
-            df_ag = df_ag.sort_values(by=["DATA_DT", col_h])
+            df_ag = df_ag.sort_values(by=["DATA_DT", "HORARIO"])
         return df_ag
     except Exception as e:
-        st.error(f"Erro ao carregar: {e}")
+        st.error(f"Erro ao carregar dados: {e}")
         return pd.DataFrame()
 
 # --- 3. POPUPS (DIALOGS) ---
@@ -60,7 +63,7 @@ def popup_finalizar_visita(idx, cliente):
     st.subheader(f"🏁 Finalizar Visita: {cliente}")
     relato = st.text_area("Notas da visita:", placeholder="O que foi acordado?")
     
-    # NOVO: Incluindo data de Follow-up
+    # NOVO: Inclusão da Data de Follow-up
     data_follow = st.date_input("Agendar Follow-up para:", value=date.today() + timedelta(days=7))
     
     if st.button("Gravar Resultado"):
@@ -69,54 +72,55 @@ def popup_finalizar_visita(idx, cliente):
             ws = sh.worksheet("Agendamentos")
             linha = int(idx) + 2
             
-            # Atualiza Coluna L: REALIZADA
-            ws.update_cell(linha, 12, "SIM") 
+            ws.update_cell(linha, 12, "SIM") # Coluna L: REALIZADA
+            ws.update_cell(linha, 8, f"RELATO: {relato}") # Coluna H: OBS/ENDEREÇO
+            ws.update_cell(linha, 13, data_follow.strftime("%d/%m/%Y")) # Coluna M: FOLLOW-UP
             
-            # Atualiza Coluna H: OBS/RELATO
-            ws.update_cell(linha, 8, f"RELATO: {relato}") 
-            
-            # NOVO: Grava Data de Follow na Coluna M
-            ws.update_cell(linha, 13, data_follow.strftime("%d/%m/%Y"))
-            
-            st.success(f"Visita Finalizada! Follow-up agendado para {data_follow.strftime('%d/%m/%Y')}")
+            st.success("Visita finalizada com sucesso!")
             st.cache_data.clear()
             t_module.sleep(1)
             st.rerun()
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro ao salvar: {e}")
 
 @st.dialog("Reagendar Visita")
 def popup_reagendar(idx, v):
     st.subheader(f"📅 Reagendar: {v['CLIENTE']}")
     n_data = st.date_input("Nova Data", value=date.today())
     n_hora = st.time_input("Novo Horário")
+    
     if st.button("Confirmar Reagendamento"):
         try:
             sh = conectar_google_sheets()
             ws = sh.worksheet("Agendamentos")
             linha_antiga = int(idx) + 2
+            
+            # Marca a visita antiga como reagendada
             ws.update_cell(linha_antiga, 12, "REAGENDADO")
             
+            # Cria a nova linha com os dados
             nova_linha = [
                 n_data.strftime("%d/%m/%Y"),
                 n_hora.strftime("%H:%M"),
-                v.get('CLIENTE', ''),
                 v.get('FINALIDADE', ''),
+                v.get('CLIENTE', ''),
+                v.get('ORCAMENTO', ''),
                 v.get('VALOR TOTAL', ''),
-                v.get('VENDEDOR', ''),
-                "NAO",
-                f"Antiga visita de {v.get('DATA', '')}",
+                "NAO", # GEROU ORC
+                f"Reagendado de {v.get('DATA','')}", # OBS
                 v.get('CONTATO', ''),
-                st.session_state.username,
-                datetime.now().strftime("%d/%m/%Y %H:%M")
+                v.get('TELEFONE', ''),
+                st.session_state.username, # REGISTRA O USUÁRIO
+                datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "NAO" # REALIZADA
             ]
             ws.append_row(nova_linha)
-            st.success("Reagendado!")
+            st.success("Reagendamento concluído!")
             st.cache_data.clear()
             t_module.sleep(1)
             st.rerun()
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro ao reagendar: {e}")
 
 # --- 4. INTERFACE ---
 
@@ -125,9 +129,9 @@ st.title("📅 Calendário de Visitas")
 if 'mes_ref' not in st.session_state:
     st.session_state.mes_ref = date.today().replace(day=1)
 
-# Navegação
+# Navegação de Meses
 c1, c2, c3 = st.columns([1, 2, 1])
-if c1.button("⬅️ Anterior"):
+if c1.button("⬅️ Mês Anterior"):
     st.session_state.mes_ref = (st.session_state.mes_ref - timedelta(days=1)).replace(day=1)
     st.rerun()
 
@@ -135,7 +139,7 @@ meses_pt = {1:"JANEIRO", 2:"FEVEREIRO", 3:"MARÇO", 4:"ABRIL", 5:"MAIO", 6:"JUNH
             7:"JULHO", 8:"AGOSTO", 9:"SETEMBRO", 10:"OUTUBRO", 11:"NOVEMBRO", 12:"DEZEMBRO"}
 c2.markdown(f"<h3 style='text-align: center;'>{meses_pt[st.session_state.mes_ref.month]} {st.session_state.mes_ref.year}</h3>", unsafe_allow_html=True)
 
-if c3.button("Próximo ➡️"):
+if c3.button("Próximo Mês ➡️"):
     st.session_state.mes_ref = (st.session_state.mes_ref + timedelta(days=32)).replace(day=1)
     st.rerun()
 
@@ -147,7 +151,7 @@ dias = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 for i, d in enumerate(dias):
     cols_h[i].markdown(f"<p style='text-align:center; font-weight:bold;'>{d}</p>", unsafe_allow_html=True)
 
-# Grid
+# Grid do Calendário
 cal = calendar.monthcalendar(st.session_state.mes_ref.year, st.session_state.mes_ref.month)
 for semana in cal:
     cols = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 0.7, 0.7])
@@ -162,10 +166,11 @@ for semana in cal:
                 for _, v in visitas.iterrows():
                     status = str(v.get('REALIZADA', '')).upper()
                     cli = v.get('CLIENTE', 'N/A')
-                    hora = v.get('HORARIO', v.get('HORA', '--:--'))
-                    end = v.get('A1_END', 'Endereço não localizado') #
-                    cont = v.get('CONTATO', 'N/A') #
+                    hora = v.get('HORARIO', '--:--')
+                    end = v.get('A1_END', 'Não localizado')
+                    cont = v.get('CONTATO', 'N/A')
                     
+                    # Definição de Cores
                     bg = "white"; icone = "📍"
                     if status == "SIM": bg = "#E8F5E9"; icone = "✅"
                     elif status == "REAGENDADO": bg = "#FFEBEE"; icone = "🔄"
@@ -183,18 +188,12 @@ for semana in cal:
                                         <button style="width:100%; background-color:#0078d4; color:white; border:none; padding:8px; border-radius:5px; cursor:pointer; margin-bottom:10px;">📧 Enviar Outlook</button>
                                     </a>""", unsafe_allow_html=True)
                         
-                        # Mostrar botões se não estiver realizada
                         if status == "NAO" or status == "":
-                            st.write("---")
+                            st.divider()
                             if st.button("🏁 Finalizar", key=f"f_{v['ORIGINAL_INDEX']}"):
                                 popup_finalizar_visita(v['ORIGINAL_INDEX'], cli)
                             if st.button("📅 Reagendar", key=f"r_{v['ORIGINAL_INDEX']}"):
                                 popup_reagendar(v['ORIGINAL_INDEX'], v)
-                        
-                        # Mostrar Follow-up se já estiver finalizada
-                        if status == "SIM" and "FOLLOW_UP" in v:
-                            st.info(f"📅 Follow-up: {v['FOLLOW_UP']}")
-
                     st.markdown('</div>', unsafe_allow_html=True)
 
 st.divider()
