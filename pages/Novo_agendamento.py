@@ -7,12 +7,11 @@ import os
 import time as t_module
 
 # --- 1. TRAVA DE SEGURANÇA ---
-# Impede o acesso direto pela URL se não estiver logado no main.py
 if 'logged_in' not in st.session_state or not st.session_state.logged_in:
     st.error("🚨 Acesso negado. Por favor, faça login na página inicial.")
     st.stop()
 
-# --- 2. FUNÇÕES DE APOIO (Conexão e Formatação) ---
+# --- 2. FUNÇÕES DE APOIO ---
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_info = st.secrets["gcp_service_account"].to_dict()
@@ -39,7 +38,6 @@ def carregar_aba(nome_aba):
         return pd.DataFrame()
 
 def formatar_br(valor_str):
-    """Transforma qualquer formato (ex: 10000 ou 10.000,00) em 10.000,00"""
     try:
         limpo = str(valor_str).replace("R$", "").replace(".", "").replace(",", ".").strip()
         valor_float = float(limpo)
@@ -51,6 +49,7 @@ def salvar_agendamento(novo_df):
     try:
         sh = conectar_google_sheets()
         worksheet = sh.worksheet("Agendamentos")
+        # Converte para lista de listas para o append_rows
         valores = novo_df.astype(str).values.tolist()
         worksheet.append_rows(valores)
         st.cache_data.clear()
@@ -61,9 +60,8 @@ def salvar_agendamento(novo_df):
 
 # --- 3. INTERFACE DA PÁGINA ---
 st.title("➕ Novo Agendamento")
-st.caption(f"Usuário: {st.session_state.user_data['nome']} | Perfil: {st.session_state.user_data['perfil']}")
+st.caption(f"Logado como: **{st.session_state.user_data['nome']}** | Perfil: **{st.session_state.user_data['perfil']}**")
 
-# Carregamento de dados
 with st.spinner('Sincronizando com Google Sheets...'):
     df_para = carregar_aba("Para_Agendar")
     df_orc_gerais = carregar_aba("Orcamentos Gerais")
@@ -71,37 +69,32 @@ with st.spinner('Sincronizando com Google Sheets...'):
 if df_para.empty:
     st.warning("⚠️ Nenhuma lista de clientes encontrada em 'Para_Agendar'.")
 else:
-    # Cabeçalho do formulário
     col1, col2, col3 = st.columns([2, 2, 1])
     data_v = col1.date_input("Data da Visita", value=date.today())
-    finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA"])
-    hora_v = col3.time_input("Hora", value=time(9, 0))
+    # Adicionado "REAGENDADA" conforme solicitado
+    finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA", "REAGENDADA"])
+    hora_v = col3.time_input("Hora da Visita", value=time(9, 0))
 
-    # Seleção do Cliente
     col_cli = [c for c in df_para.columns if 'CLIENTE' in c]
     lista_cli = sorted(df_para[col_cli[0]].unique().tolist()) if col_cli else []
     cliente_f = st.selectbox("Selecione o Cliente", options=[""] + lista_cli)
     
-    # Variáveis de suporte
     vlr_f = "0,00"
     orc_num = "Não localizado"
     endereco_f = ""
 
     if cliente_f:
-        # Busca dados do cliente selecionado
         dados_cli = df_para[df_para[col_cli[0]].str.strip() == cliente_f.strip()]
         if not dados_cli.empty:
             vlr_raw = dados_cli.iloc[0].get("VLR TOTAL", "0,00")
             vlr_f = formatar_br(vlr_raw)
             endereco_f = dados_cli.iloc[0].get("ENDEREÇO", "")
         
-        # Busca orçamento vinculado
         if not df_orc_gerais.empty:
             dados_orc = df_orc_gerais[df_orc_gerais["CLIENTE"].str.strip() == cliente_f.strip()]
             if not dados_orc.empty:
                 orc_num = dados_orc.iloc[0].get("ORCAMENTO", "Não localizado")
 
-        # --- EXIBIÇÃO DAS MÉTRICAS ---
         c_vlr, c_orc = st.columns(2)
         c_vlr.metric("💰 Valor Estimado", f"R$ {vlr_f}")
         c_orc.metric("📄 Orçamento Atual", orc_num)
@@ -109,7 +102,6 @@ else:
         if endereco_f:
             st.info(f"📍 **Endereço Base:** {endereco_f}")
 
-    # --- FORMULÁRIO FINAL ---
     with st.form("form_agendamento"):
         contato_f = st.text_input("Nome do Contato / Responsável")
         obs = st.text_area("Observações Adicionais (Detalhes da Visita)")
@@ -121,8 +113,9 @@ else:
                 st.error("❌ Erro: Selecione um cliente antes de confirmar.")
             else:
                 detalhes_completos = f"Endereço: {endereco_f} | Obs: {obs}"
+                agora = datetime.now()
                 
-                # Criando o DataFrame para salvar
+                # Criando o registro com Auditoria de Usuário e Data/Hora da inclusão
                 novo_registro = pd.DataFrame([{
                     "DATA": data_v.strftime("%d/%m/%Y"), 
                     "HORA": hora_v.strftime("%H:%M"),
@@ -131,10 +124,10 @@ else:
                     "ORCAMENTO": orc_num if orc_num != "Não localizado" else "", 
                     "VALOR TOTAL": vlr_f, 
                     "REALIZADA": "NAO", 
-                    "DETALHES  DA VISITA": detalhes_completos, 
+                    "DETALHES DA VISITA": detalhes_completos, 
                     "NOME DO CONTATO": contato_f,
-                    "DATA FOLLOW": "", 
-                    "NOVO ORCAMENTO": ""
+                    "USUARIO_INCLUSAO": st.session_state.user_data['nome'], # Captura quem gravou
+                    "DATA_HORA_LOG": agora.strftime("%d/%m/%Y %H:%M:%S")  # Captura quando gravou
                 }])
                 
                 if salvar_agendamento(novo_registro):
@@ -143,7 +136,6 @@ else:
                     t_module.sleep(2)
                     st.rerun()
 
-# --- RODAPÉ DA PÁGINA ---
 st.divider()
 if st.button("⬅️ Voltar para o Início"):
     st.switch_page("main.py")
