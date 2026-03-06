@@ -168,12 +168,38 @@ for semana in cal:
                         st.write(f"**Contato:** {cont}")
                         
                         # Botão Outlook
-                        assunto = urllib.parse.quote(f"Visita: {cli}")
-                        corpo = urllib.parse.quote(f"Cliente: {cli}\nEndereço: {end}\nContato: {cont}")
-                        st.markdown(f"""<a href="mailto:?subject={assunto}&body={corpo}" target="_blank">
-                                        <button style="width:100%; background-color:#0078d4; color:white; border:none; padding:8px; border-radius:5px; cursor:pointer; margin-bottom:10px;">📧 Enviar Outlook</button>
-                                    </a>""", unsafe_allow_html=True)
-                        
+                        # --- 1. PREPARAÇÃO DOS DADOS PARA O CALENDÁRIO ---
+                        # Precisamos converter a data e hora para o formato que o Outlook entende (YYYYMMDDTHHMMSS)
+                        try:
+                            data_formatada = v['DATA_DT'].strftime('%Y%m%d')
+                            # Remove os dois pontos do horário (ex: 09:00 -> 0900)
+                            hora_limpa = str(v.get('HORARIO', '09:00')).replace(':', '')
+                            start_time = f"{data_formatada}T{hora_limpa}00"
+                            
+                            # Define o fim da visita como 1 hora depois do início
+                            end_dt = datetime.combine(v['DATA_DT'], datetime.strptime(v.get('HORARIO', '09:00'), '%H:%M').time()) + timedelta(hours=1)
+                            end_time = end_dt.strftime('%Y%m%dT%H%M00')
+                        except:
+                            start_time = ""
+                            end_time = ""
+
+                        # --- 2. GERAÇÃO DO LINK DE CALENDÁRIO (OUTLOOK WEB) ---
+                        # Se os horários estiverem ok, gera o link de "Apointment"
+                        assunto_cal = urllib.parse.quote(f"Visita: {cli}")
+                        corpo_cal = urllib.parse.quote(f"Cliente: {cli}\nEndereço: {end}\nContato: {cont}")
+                        local_cal = urllib.parse.quote(str(end))
+
+                        link_outlook_cal = f"https://outlook.office.com/calendar/0/deeplink/compose?subject={assunto_cal}&body={corpo_cal}&location={local_cal}&startdt={start_time}&enddt={end_time}&path=%2fcalendar%2faction%2fcompose&rru=addevent"
+
+                        # --- 3. BOTÃO NA INTERFACE ---
+                        st.markdown(f"""
+                            <a href="{link_outlook_cal}" target="_blank">
+                                <button style="width:100%; background-color:#0078d4; color:white; border:none; padding:10px; border-radius:5px; cursor:pointer; margin-bottom:10px; font-weight:bold;">
+                                    📅 Agendar no Outlook
+                                </button>
+                            </a>
+                        """, unsafe_allow_html=True)
+                                                
                         # CORREÇÃO AQUI: Botões aparecem se status não for SIM nem REAGENDADO
                         if status not in ["SIM", "REAGENDADO"]:
                             st.divider()
