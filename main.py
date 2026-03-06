@@ -5,8 +5,10 @@ st.set_page_config(page_title="Kaufmann CRM", layout="wide")
 LOGO_PATH = "Logo_Kaufmann.jpg"
 
 USUARIOS = {
-    "adm_kaufmann": {"senha": "123", "perfil": "ADM", "nome": "Administrador"},
-    "vendedor_01": {"senha": "789", "perfil": "VEND", "nome": "Vendedor 1"},
+    "Giuseppe": {"senha": "Zeppe", "perfil": "ADM", "nome": "Administrador"},
+    "Rodrigo": {"senha": "Rod1", "perfil": "COORD", "nome": "Rodrigo"},
+    "Alcides": {"senha": "123", "perfil": "VEND", "nome": "Vendedor 1"},
+    "Andreza": {"senha": "321", "perfil": "VEND", "nome": "Vendedor 2"},
 }
 
 if 'logged_in' not in st.session_state:
