@@ -40,6 +40,7 @@ def carregar_dados_calendario():
             df_ag['DATA_DT'] = pd.to_datetime(df_ag['DATA'], errors='coerce', dayfirst=True).dt.date
             col_h = "HORARIO" if "HORARIO" in df_ag.columns else "HORA"
             
+            # MERGE PARA O ENDEREÇO (A1_END) - MANTIDO!
             if "CLIENTE" in df_para.columns and "A1_END" in df_para.columns:
                 df_end = df_para[['CLIENTE', 'A1_END']].drop_duplicates(subset=['CLIENTE'])
                 df_ag = pd.merge(df_ag, df_end, on='CLIENTE', how='left')
@@ -50,30 +51,28 @@ def carregar_dados_calendario():
         st.error(f"Erro ao carregar dados: {e}")
         return pd.DataFrame()
 
-def processar_reagendamento(idx_antigo, dados_originais, nova_data, novo_horario):
+def processar_reagendamento(idx_antigo, v, nova_data, novo_horario):
     try:
         sh = conectar_google_sheets()
         ws = sh.worksheet("Agendamentos")
         linha_antiga = int(idx_antigo) + 2
         
-        # 1. Marca a antiga como REAGENDADO na coluna REALIZADA (Coluna L / 12)
-        ws.update_cell(linha_antiga, 12, "REAGENDADO")
+        # 1. Marca a antiga como REAGENDADO
+        ws.update_cell(linha_antiga, 12, "REAGENDADO") # Coluna L
         
-        # 2. Cria a nova linha (Copia dados e altera Data/Hora)
-        # Ordem sugerida: DATA, HORARIO, CLIENTE, FINALIDADE, VALOR, VENDEDOR, REALIZADA, OBS, CONTATO...
-        # Vamos montar uma lista baseada nos dados que já temos no DataFrame
+        # 2. Cria a nova linha com a nova data e hora
         nova_linha = [
             nova_data.strftime("%d/%m/%Y"),
             novo_horario,
-            dados_originais.get('CLIENTE', ''),
-            dados_originais.get('FINALIDADE', ''),
-            dados_originais.get('VALOR TOTAL', ''),
-            dados_originais.get('VENDEDOR', ''),
-            "NAO", # Realizada novo
-            f"Reagendado da data {dados_originais.get('DATA', '')}",
-            dados_originais.get('CONTATO', ''),
-            st.session_state.username, # Usuário inclusão
-            datetime.now().strftime("%d/%m/%Y %H:%M:%S") # Log
+            v.get('CLIENTE', ''),
+            v.get('FINALIDADE', ''),
+            v.get('VALOR TOTAL', ''),
+            v.get('VENDEDOR', ''),
+            "NAO", 
+            f"Reagendado de {v.get('DATA', '')}",
+            v.get('CONTATO', ''),
+            st.session_state.username,
+            datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         ]
         ws.append_row(nova_linha)
         st.cache_data.clear()
@@ -88,18 +87,23 @@ def popup_finalizar_visita(idx, cliente):
     st.write(f"Registrar resultado para: **{cliente}**")
     relato = st.text_area("Descreva o que foi tratado na visita:")
     if st.button("Gravar na Planilha"):
-        # Lógica de finalizar (simplificada aqui para brevidade)
-        st.success("Sucesso!")
+        sh = conectar_google_sheets()
+        ws = sh.worksheet("Agendamentos")
+        linha = int(idx) + 2
+        ws.update_cell(linha, 12, "SIM")
+        ws.update_cell(linha, 8, relato)
+        st.success("Visita Finalizada!")
+        t_module.sleep(1)
         st.rerun()
 
 @st.dialog("Reagendar Visita")
 def popup_reagendar(idx, v):
     st.write(f"Reagendando: **{v['CLIENTE']}**")
     n_data = st.date_input("Nova Data", value=date.today())
-    n_hora = st.time_input("Novo Horário", value=datetime.now().time())
-    if st.button("Confirmar Novo Agendamento"):
+    n_hora = st.time_input("Novo Horário")
+    if st.button("Confirmar Reagendamento"):
         if processar_reagendamento(idx, v, n_data, n_hora.strftime("%H:%M")):
-            st.success("Reagendado!")
+            st.success("Reagendado com sucesso!")
             t_module.sleep(1)
             st.rerun()
 
@@ -109,14 +113,13 @@ st.title("📅 Calendário de Visitas")
 if 'mes_ref' not in st.session_state:
     st.session_state.mes_ref = date.today().replace(day=1)
 
-# CABEÇALHO DE NAVEGAÇÃO
+# Navegação
 col_n1, col_n2, col_n3 = st.columns([1, 2, 1])
 if col_n1.button("⬅️ Anterior"):
     st.session_state.mes_ref = (st.session_state.mes_ref - timedelta(days=1)).replace(day=1)
     st.rerun()
 
-meses_pt = {1: "JANEIRO", 2: "FEVEREIRO", 3: "MARÇO", 4: "ABRIL", 5: "MAIO", 6: "JUNHO",
-            7: "JULHO", 8: "AGOSTO", 9: "SETEMBRO", 10: "OUTUBRO", 11: "NOVEMBRO", 12: "DEZEMBRO"}
+meses_pt = {i+1: m for i, m in enumerate(["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"])}
 col_n2.markdown(f"<h3 style='text-align: center;'>{meses_pt[st.session_state.mes_ref.month]} {st.session_state.mes_ref.year}</h3>", unsafe_allow_html=True)
 
 if col_n3.button("Próximo ➡️"):
@@ -125,17 +128,15 @@ if col_n3.button("Próximo ➡️"):
 
 df_ag = carregar_dados_calendario()
 
-# DIAS DA SEMANA COM LARGURA AJUSTADA (Sab/Dom menores)
-# Proporção: Seg a Sex (1.2), Sab/Dom (0.5)
-cols_h = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 0.6, 0.6])
-dias_semana = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sáb", "Dom"]
-for i, d in enumerate(dias_semana):
-    cols_h[i].markdown(f"<p style='text-align:center;font-weight:bold;font-size:12px;'>{d}</p>", unsafe_allow_html=True)
+# Dias da semana com colunas ajustadas
+cols_h = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 0.7, 0.7])
+dias = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+for i, d in enumerate(dias):
+    cols_h[i].markdown(f"<p style='text-align:center;font-weight:bold;'>{d}</p>", unsafe_allow_html=True)
 
-# GRID DO CALENDÁRIO
 cal = calendar.monthcalendar(st.session_state.mes_ref.year, st.session_state.mes_ref.month)
 for semana in cal:
-    cols = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 0.6, 0.6])
+    cols = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 0.7, 0.7])
     for i, dia in enumerate(semana):
         if dia == 0: continue
         with cols[i]:
@@ -147,35 +148,35 @@ for semana in cal:
                 for _, v in visitas_dia.iterrows():
                     status = str(v.get('REALIZADA', '')).upper()
                     h = v.get('HORARIO', v.get('HORA', '--:--'))
+                    cli = v.get('CLIENTE', 'N/A')
+                    end = v.get('A1_END', 'Não localizado')
+                    contato = v.get('CONTATO', 'N/A')
                     
-                    # DEFINIÇÃO DE CORES
-                    bg_color = "white"
+                    # Definição de Cores
+                    bg_color = "#ffffff" # Pendente
                     icone = "📍"
-                    if status == "SIM": 
-                        bg_color = "#e1f5fe"; icone = "✅" # Azul claro
-                    elif status == "REAGENDADO": 
-                        bg_color = "#ffebee"; icone = "🔄" # Rosa claro / Vermelho suave
+                    if status == "SIM": bg_color = "#e8f5e9"; icone = "✅" # Verde claro
+                    elif status == "REAGENDADO": bg_color = "#ffebee"; icone = "🔄" # Rosa/Vermelho claro
                     
-                    label = f"{icone} {h} | {v['CLIENTE'][:8]}"
-                    
-                    with st.container():
-                        st.markdown(f"""<div style="background-color:{bg_color}; border-radius:5px; padding:2px; border:1px solid #ddd; margin-bottom:2px;">""", unsafe_allow_html=True)
-                        with st.expander(label):
-                            st.write(f"**Cliente:** {v['CLIENTE']}")
-                            st.write(f"**Contato:** {v.get('CONTATO', 'N/A')}")
-                            
-                            # Botão Outlook
-                            assunto = urllib.parse.quote(f"Visita - {v['CLIENTE']}")
-                            link_mail = f"mailto:?subject={assunto}"
-                            st.markdown(f'<a href="{link_mail}"><button style="width:100%; cursor:pointer;">📧 Outlook</button></a>', unsafe_allow_html=True)
-                            
-                            if status == "NAO":
-                                if st.button("🏁 Finalizar", key=f"f_{v['ORIGINAL_INDEX']}"):
-                                    popup_finalizar_visita(v['ORIGINAL_INDEX'], v['CLIENTE'])
-                                if st.button("📅 Reagendar", key=f"r_{v['ORIGINAL_INDEX']}"):
-                                    popup_reagendar(v['ORIGINAL_INDEX'], v)
-                        st.markdown("</div>", unsafe_allow_html=True)
+                    # Estilo do Card
+                    st.markdown(f"""<div style="background-color:{bg_color}; border-radius:5px; padding:3px; border:1px solid #ddd; margin-bottom:5px;">""", unsafe_allow_html=True)
+                    with st.expander(f"{icone} {h} | {cli[:8]}"):
+                        st.write(f"**👤 Cliente:** {cli}")
+                        st.write(f"**🏠 Endereço:** {end}")
+                        st.write(f"**📞 Contato:** {contato}")
+                        
+                        # Botão Outlook Estilizado
+                        corpo_email = f"Cliente: {cli}\nEndereço: {end}\nContato: {contato}"
+                        link_mail = f"mailto:?subject=Visita {cli}&body={urllib.parse.quote(corpo_email)}"
+                        st.markdown(f'<a href="{link_mail}" target="_blank"><button style="width:100%; background-color:#0078d4; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">📧 Outlook</button></a>', unsafe_allow_html=True)
+                        
+                        if status == "NAO":
+                            st.write("---")
+                            if st.button("🏁 Finalizar", key=f"f_{v['ORIGINAL_INDEX']}"):
+                                popup_finalizar_visita(v['ORIGINAL_INDEX'], cli)
+                            if st.button("📅 Reagendar", key=f"r_{v['ORIGINAL_INDEX']}"):
+                                popup_reagendar(v['ORIGINAL_INDEX'], v)
+                    st.markdown("</div>", unsafe_allow_html=True)
 
 st.divider()
-if st.button("⬅️ Voltar"):
-    st.switch_page("main.py")
+if st.button("⬅️ Voltar"): st.switch_page("main.py")
