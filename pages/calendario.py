@@ -32,23 +32,24 @@ def carregar_aba(nome_aba):
         if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
         
-        # NORMALIZAÇÃO: Garante que HORA seja texto antes de qualquer conversão
-        if "HORA" in df.columns:
-            df["HORA"] = df["HORA"].astype(str).str.strip()
-            
-        df = df.fillna("").astype(str)
+        # Converte todos os nomes de colunas para MAIÚSCULO e remove espaços
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        if nome_aba == "Agendamentos" and "DATA" in df.columns:
-            # Converte data para objeto datetime (DD/MM/AAAA)
-            df['DATA_DT'] = pd.to_datetime(df['DATA'], errors='coerce', dayfirst=True).dt.date
+        if nome_aba == "Agendamentos":
+            # Força a coluna DATA para o formato de data do Python (dia primeiro)
+            if "DATA" in df.columns:
+                df['DATA_DT'] = pd.to_datetime(df['DATA'], errors='coerce', dayfirst=True).dt.date
             
-            # Ordenação por Data e Hora
-            colunas_ordem = ["DATA_DT"]
-            if "HORA" in df.columns:
-                colunas_ordem.append("HORA")
+            # Identifica se a coluna na planilha é 'HORARIO' ou 'HORA'
+            col_h = "HORARIO" if "HORARIO" in df.columns else "HORA"
             
-            df = df.sort_values(by=colunas_ordem)
+            # Garante que a coluna de hora seja tratada como texto limpo
+            if col_h in df.columns:
+                df[col_h] = df[col_h].astype(str).str.strip()
+            
+            # Ordena pela data e pela coluna de hora identificada
+            df = df.sort_values(by=["DATA_DT", col_h])
+            
         return df
     except Exception as e:
         st.error(f"Erro ao carregar {nome_aba}: {e}")
@@ -59,14 +60,10 @@ def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detal
         sh = conectar_google_sheets()
         worksheet = sh.worksheet("Agendamentos")
         linha = int(indice_original) + 2
-        
-        # G=REALIZADA (Coluna 7), H=DETALHES (Coluna 8)
-        worksheet.update_cell(linha, 7, "SIM") 
-        
+        worksheet.update_cell(linha, 7, "SIM") # Coluna G: Realizada
         obs_atual = worksheet.cell(linha, 8).value or ""
         nova_obs = f"{obs_atual} | RESULTADO: {novos_detalhes}".strip(" | ")
-        worksheet.update_cell(linha, 8, nova_obs) 
-        
+        worksheet.update_cell(linha, 8, nova_obs) # Coluna H: Obs
         st.cache_data.clear()
         return True
     except Exception as e:
@@ -99,12 +96,9 @@ if col_nav1.button("⬅️ Mês Anterior"):
     st.session_state.mes_ref = (st.session_state.mes_ref - timedelta(days=1)).replace(day=1)
     st.rerun()
 
-meses_pt = {
-    1: "JANEIRO", 2: "FEVEREIRO", 3: "MARÇO", 4: "ABRIL", 5: "MAIO", 6: "JUNHO",
-    7: "JULHO", 8: "AGOSTO", 9: "SETEMBRO", 10: "OUTUBRO", 11: "NOVEMBRO", 12: "DEZEMBRO"
-}
-nome_mes = meses_pt[st.session_state.mes_ref.month]
-col_nav2.markdown(f"<h3 style='text-align: center;'>{nome_mes} {st.session_state.mes_ref.year}</h3>", unsafe_allow_html=True)
+meses_pt = {1: "JANEIRO", 2: "FEVEREIRO", 3: "MARÇO", 4: "ABRIL", 5: "MAIO", 6: "JUNHO",
+            7: "JULHO", 8: "AGOSTO", 9: "SETEMBRO", 10: "OUTUBRO", 11: "NOVEMBRO", 12: "DEZEMBRO"}
+col_nav2.markdown(f"<h3 style='text-align: center;'>{meses_pt[st.session_state.mes_ref.month]} {st.session_state.mes_ref.year}</h3>", unsafe_allow_html=True)
 
 if col_nav3.button("Próximo Mês ➡️"):
     st.session_state.mes_ref = (st.session_state.mes_ref + timedelta(days=32)).replace(day=1)
@@ -121,8 +115,7 @@ for i, d in enumerate(dias_semana):
 for semana in cal:
     cols = st.columns(7)
     for i, dia in enumerate(semana):
-        if dia == 0:
-            continue
+        if dia == 0: continue
         with cols[i]:
             data_atual = date(st.session_state.mes_ref.year, st.session_state.mes_ref.month, dia)
             cor_dia = "blue" if data_atual == date.today() else "black"
@@ -136,14 +129,15 @@ for semana in cal:
                     icone = "✅" if realizada else "📍"
                     cli = v.get('CLIENTE', 'N/A')
                     
-                    # AJUSTE DE EXIBIÇÃO DA HORA
-                    hora_raw = v.get('HORA', '').strip()
-                    hora = hora_raw if hora_raw and hora_raw.lower() != "nan" else "--:--"
-                    
-                    label = f"{icone} {hora} | {cli[:10]}"
+                    # CORREÇÃO: Busca o horário usando o nome exato da sua planilha
+                    h_exibir = v.get('HORARIO', v.get('HORA', '--:--')).strip()
+                    if h_exibir.lower() == "nan" or not h_exibir:
+                        h_exibir = "--:--"
+
+                    label = f"{icone} {h_exibir} | {cli[:10]}"
                     with st.expander(label):
                         st.write(f"**👤 Cliente:** {cli}")
-                        st.write(f"**⏰ Horário:** {hora}")
+                        st.write(f"**⏰ Horário:** {h_exibir}")
                         st.write(f"**📞 Contato:** {v.get('NOME DO CONTATO', 'N/A')}")
                         st.write(f"**💰 Valor:** R$ {v.get('VALOR TOTAL', '0,00')}")
                         
