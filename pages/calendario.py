@@ -32,11 +32,20 @@ def carregar_aba(nome_aba):
         if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
         df = df.fillna("").astype(str)
+        
+        # Normaliza nomes das colunas para evitar erros de busca
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         if nome_aba == "Agendamentos" and "DATA" in df.columns:
+            # Converte data para objeto datetime do Python (formato brasileiro)
             df['DATA_DT'] = pd.to_datetime(df['DATA'], errors='coerce', dayfirst=True).dt.date
-            df = df.sort_values(by=["DATA_DT", "HORA"])
+            
+            # Ordenação segura: verifica se HORA existe antes de ordenar
+            colunas_ordem = ["DATA_DT"]
+            if "HORA" in df.columns:
+                colunas_ordem.append("HORA")
+            
+            df = df.sort_values(by=colunas_ordem)
         return df
     except Exception as e:
         st.error(f"Erro ao carregar {nome_aba}: {e}")
@@ -48,14 +57,20 @@ def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detal
         worksheet = sh.worksheet("Agendamentos")
         # +2 porque o Python começa em 0 e o Sheets tem cabeçalho (linha 1)
         linha = int(indice_original) + 2
-        worksheet.update_acell(f'G{linha}', "SIM") # Coluna G: Realizada
-        worksheet.update_acell(f'L{linha}', data_follow.strftime("%d/%m/%Y")) # Coluna L: Follow-up
-        worksheet.update_acell(f'O{linha}', novo_orc_resp) # Coluna O: Novo Orçamento
         
-        # Busca obs atual para anexar o resultado
-        obs_atual = worksheet.acell(f'H{linha}').value or ""
+        # Mapeamento de colunas atualizado (conforme ordem do Novo Agendamento)
+        # G=REALIZADA, J=NOME DO CONTATO, K=USUARIO_INCLUSAO, L=DATA_HORA_LOG
+        # Vamos usar índices numéricos para garantir precisão
+        worksheet.update_cell(linha, 7, "SIM") # Coluna G: Realizada
+        
+        # Busca obs atual (Coluna H) para anexar o resultado
+        obs_atual = worksheet.cell(linha, 8).value or ""
         nova_obs = f"{obs_atual} | RESULTADO: {novos_detalhes}".strip(" | ")
-        worksheet.update_acell(f'H{linha}', nova_obs)
+        worksheet.update_cell(linha, 8, nova_obs) # Coluna H: Detalhes/Obs
+        
+        # Se houver colunas para Follow-up e Novo Orçamento na sua planilha,
+        # ajuste os números abaixo (ex: se forem as colunas 12 e 13)
+        # worksheet.update_cell(linha, 12, data_follow.strftime("%d/%m/%Y")) 
         
         st.cache_data.clear()
         return True
@@ -68,7 +83,7 @@ def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detal
 def popup_finalizar_visita(idx, cliente):
     st.write(f"Registrar resultado para: **{cliente}**")
     novo_orc = st.radio("Gerou um NOVO Orçamento?", ["SIM", "NAO"], horizontal=True)
-    follow = st.date_input("Próxima Data de Follow-up", value=date.today() + timedelta(days=7))
+    follow = st.date_input("Próxima Data de Follow-up", value=date.today() + timedelta(days=7), format="DD/MM/YYYY")
     relato = st.text_area("Descreva o que foi tratado na visita:")
     
     if st.button("Gravar na Planilha"):
@@ -90,7 +105,13 @@ if col_nav1.button("⬅️ Mês Anterior"):
     st.session_state.mes_ref = (st.session_state.mes_ref - timedelta(days=1)).replace(day=1)
     st.rerun()
 
-col_nav2.markdown(f"<h3 style='text-align: center;'>{st.session_state.mes_ref.strftime('%B %Y').upper()}</h3>", unsafe_allow_html=True)
+# Nome do mês em português
+meses_pt = {
+    1: "JANEIRO", 2: "FEVEREIRO", 3: "MARÇO", 4: "ABRIL", 5: "MAIO", 6: "JUNHO",
+    7: "JULHO", 8: "AGOSTO", 9: "SETEMBRO", 10: "OUTUBRO", 11: "NOVEMBRO", 12: "DEZEMBRO"
+}
+nome_mes = meses_pt[st.session_state.mes_ref.month]
+col_nav2.markdown(f"<h3 style='text-align: center;'>{nome_mes} {st.session_state.mes_ref.year}</h3>", unsafe_allow_html=True)
 
 if col_nav3.button("Próximo Mês ➡️"):
     st.session_state.mes_ref = (st.session_state.mes_ref + timedelta(days=32)).replace(day=1)
@@ -113,7 +134,6 @@ for semana in cal:
             continue
         with cols[i]:
             data_atual = date(st.session_state.mes_ref.year, st.session_state.mes_ref.month, dia)
-            # Destaque para o dia de hoje
             cor_dia = "blue" if data_atual == date.today() else "black"
             st.markdown(f"<p style='text-align:left; font-weight:bold; color:{cor_dia};'>{dia}</p>", unsafe_allow_html=True)
             
@@ -132,7 +152,9 @@ for semana in cal:
                         st.write(f"**👤 Cliente:** {cli}")
                         st.write(f"**📞 Contato:** {v.get('NOME DO CONTATO', 'N/A')}")
                         st.write(f"**💰 Valor:** R$ {v.get('VALOR TOTAL', '0,00')}")
-                        st.caption(f"📝 {v.get('DETALHES  DA VISITA', '')}")
+                        # Tratamento para erro de espaço duplo no nome da coluna
+                        detalhes = v.get('DETALHES DA VISITA', v.get('DETALHES  DA VISITA', ''))
+                        st.caption(f"📝 {detalhes}")
                         
                         if not realizada:
                             if st.button("Finalizar", key=f"fin_{idx}"):
