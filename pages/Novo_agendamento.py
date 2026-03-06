@@ -49,7 +49,6 @@ def salvar_agendamento(novo_df):
     try:
         sh = conectar_google_sheets()
         worksheet = sh.worksheet("Agendamentos")
-        # Converte para lista de listas para o append_rows
         valores = novo_df.astype(str).values.tolist()
         worksheet.append_rows(valores)
         st.cache_data.clear()
@@ -66,81 +65,95 @@ with st.spinner('Sincronizando com Google Sheets...'):
     df_para = carregar_aba("Para_Agendar")
     df_orc_gerais = carregar_aba("Orcamentos Gerais")
 
-if df_para.empty:
-    st.warning("⚠️ Nenhuma lista de clientes encontrada em 'Para_Agendar'.")
-else:
-    col1, col2, col3 = st.columns([2, 2, 1])
-    
-    # AJUSTE: Formato de exibição brasileiro no calendário do sistema
-    data_v = col1.date_input("Data da Visita", value=date.today(), format="DD/MM/YYYY")
-    
-    finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA", "REAGENDADA"])
-    hora_v = col3.time_input("Hora da Visita", value=time(9, 0))
+# Configurações Iniciais de Colunas
+col1, col2, col3 = st.columns([2, 2, 1])
+data_v = col1.date_input("Data da Visita", value=date.today(), format="DD/MM/YYYY")
+finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA", "REAGENDADA"])
+hora_v = col3.time_input("Hora da Visita", value=time(9, 0))
 
-    col_cli = [c for c in df_para.columns if 'CLIENTE' in c]
-    lista_cli = sorted(df_para[col_cli[0]].unique().tolist()) if col_cli else []
-    cliente_f = st.selectbox("Selecione o Cliente", options=[""] + lista_cli)
-    
+# Variáveis que serão salvas
+cliente_f = ""
+vlr_f = "0,00"
+orc_num = ""
+endereco_f = ""
+contato_f = ""
+
+# --- LÓGICA CONDICIONAL POR FINALIDADE ---
+if finalidade == "PROSPECCAO":
+    st.info("💡 **Modo Prospecção:** Digite os dados manualmente abaixo.")
+    cliente_f = st.text_input("Nome da Empresa (Novo Cliente)")
+    contato_f = st.text_input("Nome do Contato / Responsável")
+    forma_contato = st.text_input("Telefone ou E-mail de Contato")
+    # Para prospecção, limpamos os valores de orçamento
     vlr_f = "0,00"
-    orc_num = "Não localizado"
-    endereco_f = ""
+    orc_num = ""
+    endereco_f = forma_contato # Usamos o campo de endereço para salvar o contato direto se preferir
+else:
+    # Lógica normal para as outras finalidades
+    if df_para.empty:
+        st.warning("⚠️ Lista de clientes vazia.")
+    else:
+        col_cli = [c for c in df_para.columns if 'CLIENTE' in c]
+        lista_cli = sorted(df_para[col_cli[0]].unique().tolist()) if col_cli else []
+        cliente_selecionado = st.selectbox("Selecione o Cliente", options=[""] + lista_cli)
+        
+        if cliente_selecionado:
+            cliente_f = cliente_selecionado
+            dados_cli = df_para[df_para[col_cli[0]].str.strip() == cliente_f.strip()]
+            if not dados_cli.empty:
+                vlr_raw = dados_cli.iloc[0].get("VLR TOTAL", "0,00")
+                vlr_f = formatar_br(vlr_raw)
+                endereco_f = dados_cli.iloc[0].get("ENDEREÇO", "")
+            
+            if not df_orc_gerais.empty:
+                dados_orc = df_orc_gerais[df_orc_gerais["CLIENTE"].str.strip() == cliente_f.strip()]
+                if not dados_orc.empty:
+                    orc_num = dados_orc.iloc[0].get("ORCAMENTO", "")
 
-    if cliente_f:
-        dados_cli = df_para[df_para[col_cli[0]].str.strip() == cliente_f.strip()]
-        if not dados_cli.empty:
-            vlr_raw = dados_cli.iloc[0].get("VLR TOTAL", "0,00")
-            vlr_f = formatar_br(vlr_raw)
-            endereco_f = dados_cli.iloc[0].get("ENDEREÇO", "")
-        
-        if not df_orc_gerais.empty:
-            dados_orc = df_orc_gerais[df_orc_gerais["CLIENTE"].str.strip() == cliente_f.strip()]
-            if not dados_orc.empty:
-                orc_num = dados_orc.iloc[0].get("ORCAMENTO", "Não localizado")
+            c_vlr, c_orc = st.columns(2)
+            c_vlr.metric("💰 Valor Estimado", f"R$ {vlr_f}")
+            c_orc.metric("📄 Orçamento Atual", orc_num if orc_num else "S/N")
+            
+            if endereco_f:
+                st.info(f"📍 **Endereço Base:** {endereco_f}")
+            
+            contato_f = st.text_input("Nome do Contato / Responsável")
 
-        c_vlr, c_orc = st.columns(2)
-        c_vlr.metric("💰 Valor Estimado", f"R$ {vlr_f}")
-        c_orc.metric("📄 Orçamento Atual", orc_num)
-        
-        if endereco_f:
-            st.info(f"📍 **Endereço Base:** {endereco_f}")
-
-    with st.form("form_agendamento"):
-        contato_f = st.text_input("Nome do Contato / Responsável")
-        obs = st.text_area("Observações Adicionais (Detalhes da Visita)")
-        
-        enviar = st.form_submit_button("🚀 CONFIRMAR AGENDAMENTO")
-        
-        if enviar:
-            if not cliente_f:
-                st.error("❌ Erro: Selecione um cliente antes de confirmar.")
-            else:
-                detalhes_completos = f"Endereço: {endereco_f} | Obs: {obs}"
-                
-                # AJUSTE: Capturando Horário de Brasília (UTC-3)
-                # O servidor do Streamlit geralmente usa UTC (00:00).
-                agora_utc = datetime.now()
-                agora_br = agora_utc - timedelta(hours=3)
-                
-                # Criando o registro com Auditoria de Usuário e Data/Hora da inclusão
-                novo_registro = pd.DataFrame([{
-                    "DATA": data_v.strftime("%d/%m/%Y"), 
-                    "HORA": hora_v.strftime("%H:%M"),
-                    "FINALIDADE": finalidade,
-                    "CLIENTE": cliente_f,
-                    "ORCAMENTO": orc_num if orc_num != "Não localizado" else "", 
-                    "VALOR TOTAL": vlr_f, 
-                    "REALIZADA": "NAO", 
-                    "DETALHES DA VISITA": detalhes_completos, 
-                    "NOME DO CONTATO": contato_f,
-                    "USUARIO_INCLUSAO": st.session_state.user_data['nome'], 
-                    "DATA_HORA_LOG": agora_br.strftime("%d/%m/%Y %H:%M:%S")
-                }])
-                
-                if salvar_agendamento(novo_registro):
-                    st.balloons()
-                    st.success("✅ Agendamento gravado com sucesso!")
-                    t_module.sleep(2)
-                    st.rerun()
+# --- FORMULÁRIO DE FINALIZAÇÃO ---
+with st.form("form_agendamento"):
+    obs = st.text_area("Observações Adicionais (Detalhes da Visita)")
+    enviar = st.form_submit_button("🚀 CONFIRMAR AGENDAMENTO")
+    
+    if enviar:
+        if not cliente_f:
+            st.error("❌ Erro: Informe o nome do cliente antes de confirmar.")
+        else:
+            detalhes_completos = f"Endereço: {endereco_f} | Obs: {obs}"
+            
+            # Auditoria de Horário (Brasília)
+            agora_utc = datetime.now()
+            agora_br = agora_utc - timedelta(hours=3)
+            
+            # Criando o registro exatamente no formato da sua planilha
+            novo_registro = pd.DataFrame([{
+                "DATA": data_v.strftime("%d/%m/%Y"), 
+                "HORA": hora_v.strftime("%H:%M"),
+                "FINALIDADE": finalidade,
+                "CLIENTE": cliente_f,
+                "ORCAMENTO": orc_num, 
+                "VALOR TOTAL": vlr_f, 
+                "REALIZADA": "NAO", 
+                "DETALHES DA VISITA": detalhes_completos, 
+                "NOME DO CONTATO": contato_f,
+                "USUARIO_INCLUSAO": st.session_state.user_data['nome'], 
+                "DATA_HORA_LOG": agora_br.strftime("%d/%m/%Y %H:%M:%S")
+            }])
+            
+            if salvar_agendamento(novo_registro):
+                st.balloons()
+                st.success("✅ Agendamento gravado com sucesso!")
+                t_module.sleep(2)
+                st.rerun()
 
 st.divider()
 if st.button("⬅️ Voltar para o Início"):
