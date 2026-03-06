@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 import os
 import time as t_module
 
@@ -70,8 +70,10 @@ if df_para.empty:
     st.warning("⚠️ Nenhuma lista de clientes encontrada em 'Para_Agendar'.")
 else:
     col1, col2, col3 = st.columns([2, 2, 1])
-    data_v = col1.date_input("Data da Visita", value=date.today())
-    # Adicionado "REAGENDADA" conforme solicitado
+    
+    # AJUSTE: Formato de exibição brasileiro no calendário do sistema
+    data_v = col1.date_input("Data da Visita", value=date.today(), format="DD/MM/YYYY")
+    
     finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA", "REAGENDADA"])
     hora_v = col3.time_input("Hora da Visita", value=time(9, 0))
 
@@ -113,7 +115,11 @@ else:
                 st.error("❌ Erro: Selecione um cliente antes de confirmar.")
             else:
                 detalhes_completos = f"Endereço: {endereco_f} | Obs: {obs}"
-                agora = datetime.now()
+                
+                # AJUSTE: Capturando Horário de Brasília (UTC-3)
+                # O servidor do Streamlit geralmente usa UTC (00:00).
+                agora_utc = datetime.now()
+                agora_br = agora_utc - timedelta(hours=3)
                 
                 # Criando o registro com Auditoria de Usuário e Data/Hora da inclusão
                 novo_registro = pd.DataFrame([{
@@ -126,8 +132,8 @@ else:
                     "REALIZADA": "NAO", 
                     "DETALHES DA VISITA": detalhes_completos, 
                     "NOME DO CONTATO": contato_f,
-                    "USUARIO_INCLUSAO": st.session_state.user_data['nome'], # Captura quem gravou
-                    "DATA_HORA_LOG": agora.strftime("%d/%m/%Y %H:%M:%S")  # Captura quando gravou
+                    "USUARIO_INCLUSAO": st.session_state.user_data['nome'], 
+                    "DATA_HORA_LOG": agora_br.strftime("%d/%m/%Y %H:%M:%S")
                 }])
                 
                 if salvar_agendamento(novo_registro):
