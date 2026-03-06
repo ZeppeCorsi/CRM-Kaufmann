@@ -59,14 +59,26 @@ def carregar_dados_calendario():
 def popup_finalizar_visita(idx, cliente):
     st.subheader(f"🏁 Finalizar Visita: {cliente}")
     relato = st.text_area("Notas da visita:", placeholder="O que foi acordado?")
+    
+    # NOVO: Incluindo data de Follow-up
+    data_follow = st.date_input("Agendar Follow-up para:", value=date.today() + timedelta(days=7))
+    
     if st.button("Gravar Resultado"):
         try:
             sh = conectar_google_sheets()
             ws = sh.worksheet("Agendamentos")
             linha = int(idx) + 2
-            ws.update_cell(linha, 12, "SIM") # Coluna L: REALIZADA
-            ws.update_cell(linha, 8, f"RELATO: {relato}") # Coluna H: OBS
-            st.success("Visita Finalizada!")
+            
+            # Atualiza Coluna L: REALIZADA
+            ws.update_cell(linha, 12, "SIM") 
+            
+            # Atualiza Coluna H: OBS/RELATO
+            ws.update_cell(linha, 8, f"RELATO: {relato}") 
+            
+            # NOVO: Grava Data de Follow na Coluna M
+            ws.update_cell(linha, 13, data_follow.strftime("%d/%m/%Y"))
+            
+            st.success(f"Visita Finalizada! Follow-up agendado para {data_follow.strftime('%d/%m/%Y')}")
             st.cache_data.clear()
             t_module.sleep(1)
             st.rerun()
@@ -171,15 +183,18 @@ for semana in cal:
                                         <button style="width:100%; background-color:#0078d4; color:white; border:none; padding:8px; border-radius:5px; cursor:pointer; margin-bottom:10px;">📧 Enviar Outlook</button>
                                     </a>""", unsafe_allow_html=True)
                         
-                        # MOSTRAR SEMPRE SE NÃO ESTIVER FINALIZADA
+                        # Mostrar botões se não estiver realizada
                         if status == "NAO" or status == "":
                             st.write("---")
-                            # BOTÃO FINALIZAR
                             if st.button("🏁 Finalizar", key=f"f_{v['ORIGINAL_INDEX']}"):
                                 popup_finalizar_visita(v['ORIGINAL_INDEX'], cli)
-                            # BOTÃO REAGENDAR
                             if st.button("📅 Reagendar", key=f"r_{v['ORIGINAL_INDEX']}"):
                                 popup_reagendar(v['ORIGINAL_INDEX'], v)
+                        
+                        # Mostrar Follow-up se já estiver finalizada
+                        if status == "SIM" and "FOLLOW_UP" in v:
+                            st.info(f"📅 Follow-up: {v['FOLLOW_UP']}")
+
                     st.markdown('</div>', unsafe_allow_html=True)
 
 st.divider()
