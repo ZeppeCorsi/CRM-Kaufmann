@@ -27,43 +27,78 @@ def carregar_dados_calendario():
     try:
         sh = conectar_google_sheets()
         
-        # 1. Carrega aba Agendamentos (Onde está o Contato gravado)
+        # 1. Carrega aba Agendamentos
         ws_ag = sh.worksheet("Agendamentos")
-        df_ag = pd.DataFrame(ws_ag.get_all_records())
+        data_ag = ws_ag.get_all_records()
+        df_ag = pd.DataFrame(data_ag)
         df_ag.columns = [str(c).strip().upper() for c in df_ag.columns]
         
-        # 2. Carrega aba Para_Agendar (Onde está o Endereço A1_END)
+        # Guardamos o índice original para poder atualizar a linha correta depois
+        df_ag['ORIGINAL_INDEX'] = df_ag.index
+        
+        # 2. Carrega aba Para_Agendar para o endereço
         ws_para = sh.worksheet("Para_Agendar")
         df_para = pd.DataFrame(ws_para.get_all_records())
         df_para.columns = [str(c).strip().upper() for c in df_para.columns]
         
         if not df_ag.empty:
-            # Tratamento de Data e Hora
             df_ag['DATA_DT'] = pd.to_datetime(df_ag['DATA'], errors='coerce', dayfirst=True).dt.date
             col_h = "HORARIO" if "HORARIO" in df_ag.columns else "HORA"
             
-            # --- LÓGICA DE PROCV (MERGE) ---
-            # Relacionamos as duas abas pela coluna CLIENTE que é comum a ambas
+            # MERGE para buscar endereço A1_END
             if "CLIENTE" in df_para.columns and "A1_END" in df_para.columns:
-                # Pegamos apenas as colunas necessárias da aba Para_Agendar para não sujar o DF
-                df_enderecos = df_para[['CLIENTE', 'A1_END']].drop_duplicates(subset=['CLIENTE'])
-                # Fazemos o merge (Left Join)
-                df_ag = pd.merge(df_ag, df_enderecos, on='CLIENTE', how='left')
+                df_end = df_para[['CLIENTE', 'A1_END']].drop_duplicates(subset=['CLIENTE'])
+                df_ag = pd.merge(df_ag, df_end, on='CLIENTE', how='left')
             
             df_ag = df_ag.sort_values(by=["DATA_DT", col_h])
             
         return df_ag
     except Exception as e:
-        st.error(f"Erro ao processar integração: {e}")
+        st.error(f"Erro ao processar dados: {e}")
         return pd.DataFrame()
 
-# --- 3. INTERFACE ---
+def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detalhes):
+    try:
+        sh = conectar_google_sheets()
+        worksheet = sh.worksheet("Agendamentos")
+        # +2 porque gspread começa em 1 e tem cabeçalho
+        linha = int(indice_original) + 2
+        
+        # Coluna L: REALIZADA (Baseado na imagem da planilha)
+        worksheet.update_cell(linha, 12, "SIM") 
+        
+        # Coluna H: ENDERECO / OBS (Concatenando resultado)
+        obs_atual = worksheet.cell(linha, 8).value or ""
+        nova_obs = f"{obs_atual} | RESULTADO: {novos_detalhes}".strip(" | ")
+        worksheet.update_cell(linha, 8, nova_obs) 
+        
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao finalizar: {e}")
+        return False
+
+# --- 3. POPUP DE FINALIZAÇÃO ---
+@st.dialog("Finalizar Visita")
+def popup_finalizar_visita(idx, cliente):
+    st.write(f"Registrar resultado para: **{cliente}**")
+    novo_orc = st.radio("Gerou um NOVO Orçamento?", ["SIM", "NAO"], horizontal=True)
+    follow = st.date_input("Próxima Data de Follow-up", value=date.today() + timedelta(days=7), format="DD/MM/YYYY")
+    relato = st.text_area("Descreva o que foi tratado na visita:")
+    
+    if st.button("Gravar na Planilha"):
+        if atualizar_visita_gs(idx, novo_orc, follow, relato):
+            st.balloons()
+            st.success("✅ Visita finalizada com sucesso!")
+            t_module.sleep(1)
+            st.rerun()
+
+# --- 4. INTERFACE ---
 st.title("📅 Calendário de Visitas")
 
 if 'mes_ref' not in st.session_state:
     st.session_state.mes_ref = date.today().replace(day=1)
 
-# Navegação de meses
 col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
 if col_nav1.button("⬅️ Anterior"):
     st.session_state.mes_ref = (st.session_state.mes_ref - timedelta(days=1)).replace(day=1)
@@ -79,7 +114,6 @@ if col_nav3.button("Próximo ➡️"):
 
 df_ag = carregar_dados_calendario()
 
-# Grid do Calendário
 cal = calendar.monthcalendar(st.session_state.mes_ref.year, st.session_state.mes_ref.month)
 dias_semana = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 cols_h = st.columns(7)
@@ -98,7 +132,7 @@ for semana in cal:
             if not df_ag.empty:
                 visitas_dia = df_ag[df_ag['DATA_DT'] == data_atual]
                 
-                for idx, v in visitas_dia.iterrows():
+                for _, v in visitas_dia.iterrows():
                     realizada = str(v.get('REALIZADA', '')).upper() == "SIM"
                     icone = "✅" if realizada else "📍"
                     h = v.get('HORARIO', v.get('HORA', '--:--'))
@@ -107,17 +141,13 @@ for semana in cal:
                     label = f"{icone} {h} | {cli[:10]}"
                     with st.expander(label):
                         st.write(f"**👤 Cliente:** {cli}")
-                        
-                        # Endereço vindo da aba Para_Agendar via merge
-                        end = v.get('A1_END', 'Endereço não cadastrado')
-                        st.write(f"**🏠 Endereço:** {end}")
-                        
-                        # Contato vindo diretamente da aba Agendamentos (Coluna I)
-                        contato_gravado = v.get('CONTATO', 'N/A')
-                        st.write(f"**📞 Contato:** {contato_gravado}")
-                        
+                        st.write(f"**🏠 Endereço:** {v.get('A1_END', 'Endereço não localizado')}")
+                        st.write(f"**📞 Contato:** {v.get('CONTATO', 'N/A')}")
                         st.write(f"**💰 Valor:** R$ {v.get('VALOR TOTAL', '0,00')}")
-                        st.caption(f"📝 Finalidade: {v.get('FINALIDADE', 'N/A')}")
+                        
+                        if not realizada:
+                            if st.button("Finalizar", key=f"fin_{v['ORIGINAL_INDEX']}"):
+                                popup_finalizar_visita(v['ORIGINAL_INDEX'], cli)
 
 st.divider()
 if st.button("⬅️ Voltar"):
