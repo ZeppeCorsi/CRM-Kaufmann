@@ -31,16 +31,19 @@ def carregar_aba(nome_aba):
         data = worksheet.get_all_records()
         if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
-        df = df.fillna("").astype(str)
         
-        # Normaliza nomes das colunas para evitar erros de busca
+        # NORMALIZAÇÃO: Garante que HORA seja texto antes de qualquer conversão
+        if "HORA" in df.columns:
+            df["HORA"] = df["HORA"].astype(str).str.strip()
+            
+        df = df.fillna("").astype(str)
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         if nome_aba == "Agendamentos" and "DATA" in df.columns:
-            # Converte data para objeto datetime do Python (formato brasileiro)
+            # Converte data para objeto datetime (DD/MM/AAAA)
             df['DATA_DT'] = pd.to_datetime(df['DATA'], errors='coerce', dayfirst=True).dt.date
             
-            # Ordenação segura: verifica se HORA existe antes de ordenar
+            # Ordenação por Data e Hora
             colunas_ordem = ["DATA_DT"]
             if "HORA" in df.columns:
                 colunas_ordem.append("HORA")
@@ -55,22 +58,14 @@ def atualizar_visita_gs(indice_original, novo_orc_resp, data_follow, novos_detal
     try:
         sh = conectar_google_sheets()
         worksheet = sh.worksheet("Agendamentos")
-        # +2 porque o Python começa em 0 e o Sheets tem cabeçalho (linha 1)
         linha = int(indice_original) + 2
         
-        # Mapeamento de colunas atualizado (conforme ordem do Novo Agendamento)
-        # G=REALIZADA, J=NOME DO CONTATO, K=USUARIO_INCLUSAO, L=DATA_HORA_LOG
-        # Vamos usar índices numéricos para garantir precisão
-        worksheet.update_cell(linha, 7, "SIM") # Coluna G: Realizada
+        # G=REALIZADA (Coluna 7), H=DETALHES (Coluna 8)
+        worksheet.update_cell(linha, 7, "SIM") 
         
-        # Busca obs atual (Coluna H) para anexar o resultado
         obs_atual = worksheet.cell(linha, 8).value or ""
         nova_obs = f"{obs_atual} | RESULTADO: {novos_detalhes}".strip(" | ")
-        worksheet.update_cell(linha, 8, nova_obs) # Coluna H: Detalhes/Obs
-        
-        # Se houver colunas para Follow-up e Novo Orçamento na sua planilha,
-        # ajuste os números abaixo (ex: se forem as colunas 12 e 13)
-        # worksheet.update_cell(linha, 12, data_follow.strftime("%d/%m/%Y")) 
+        worksheet.update_cell(linha, 8, nova_obs) 
         
         st.cache_data.clear()
         return True
@@ -96,7 +91,6 @@ def popup_finalizar_visita(idx, cliente):
 # --- 4. INTERFACE DO CALENDÁRIO ---
 st.title("📅 Calendário de Visitas")
 
-# Controle de Navegação de Meses
 if 'mes_ref' not in st.session_state:
     st.session_state.mes_ref = date.today().replace(day=1)
 
@@ -105,7 +99,6 @@ if col_nav1.button("⬅️ Mês Anterior"):
     st.session_state.mes_ref = (st.session_state.mes_ref - timedelta(days=1)).replace(day=1)
     st.rerun()
 
-# Nome do mês em português
 meses_pt = {
     1: "JANEIRO", 2: "FEVEREIRO", 3: "MARÇO", 4: "ABRIL", 5: "MAIO", 6: "JUNHO",
     7: "JULHO", 8: "AGOSTO", 9: "SETEMBRO", 10: "OUTUBRO", 11: "NOVEMBRO", 12: "DEZEMBRO"
@@ -117,10 +110,8 @@ if col_nav3.button("Próximo Mês ➡️"):
     st.session_state.mes_ref = (st.session_state.mes_ref + timedelta(days=32)).replace(day=1)
     st.rerun()
 
-# Carregamento dos dados
 df_ag = carregar_aba("Agendamentos")
 
-# Renderização do Calendário (Grid)
 cal = calendar.monthcalendar(st.session_state.mes_ref.year, st.session_state.mes_ref.month)
 dias_semana = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 cols_h = st.columns(7)
@@ -144,15 +135,18 @@ for semana in cal:
                     realizada = str(v.get('REALIZADA', '')).upper() == "SIM"
                     icone = "✅" if realizada else "📍"
                     cli = v.get('CLIENTE', 'N/A')
-                    hora = v.get('HORA', '--:--')
                     
-                    # Expander compacto para cada visita
-                    label = f"{icone} {hora} {cli[:10]}"
+                    # AJUSTE DE EXIBIÇÃO DA HORA
+                    hora_raw = v.get('HORA', '').strip()
+                    hora = hora_raw if hora_raw and hora_raw.lower() != "nan" else "--:--"
+                    
+                    label = f"{icone} {hora} | {cli[:10]}"
                     with st.expander(label):
                         st.write(f"**👤 Cliente:** {cli}")
+                        st.write(f"**⏰ Horário:** {hora}")
                         st.write(f"**📞 Contato:** {v.get('NOME DO CONTATO', 'N/A')}")
                         st.write(f"**💰 Valor:** R$ {v.get('VALOR TOTAL', '0,00')}")
-                        # Tratamento para erro de espaço duplo no nome da coluna
+                        
                         detalhes = v.get('DETALHES DA VISITA', v.get('DETALHES  DA VISITA', ''))
                         st.caption(f"📝 {detalhes}")
                         
