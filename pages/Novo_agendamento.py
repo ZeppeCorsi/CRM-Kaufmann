@@ -45,18 +45,6 @@ def formatar_br(valor_str):
     except:
         return valor_str
 
-def salvar_agendamento(novo_df):
-    try:
-        sh = conectar_google_sheets()
-        worksheet = sh.worksheet("Agendamentos")
-        valores = novo_df.astype(str).values.tolist()
-        worksheet.append_rows(valores)
-        st.cache_data.clear()
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
-        return False
-
 # --- 3. INTERFACE DA PÁGINA ---
 st.title("➕ Novo Agendamento")
 st.caption(f"Logado como: **{st.session_state.user_data['nome']}** | Perfil: **{st.session_state.user_data['perfil']}**")
@@ -71,13 +59,12 @@ data_v = col1.date_input("Data da Visita", value=date.today(), format="DD/MM/YYY
 finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA", "REAGENDADA"])
 hora_v = col3.time_input("Hora da Visita", value=time(9, 0))
 
-# Variáveis que serão salvas
+# Variáveis de dados
 cliente_f = ""
 vlr_f = "0,00"
 orc_num = ""
 endereco_f = ""
 contato_f = ""
-telefone_f = ""
 
 # --- LÓGICA CONDICIONAL POR FINALIDADE ---
 if finalidade == "PROSPECCAO":
@@ -86,12 +73,9 @@ if finalidade == "PROSPECCAO":
     contato_f = st.text_input("Nome do Contato / Responsável")
     endereco_f = st.text_input("Endereço ou Referência")
     forma_contato = st.text_input("Telefone ou E-mail de Contato")
-    # Para prospecção, limpamos os valores de orçamento
     vlr_f = "0,00"
     orc_num = ""
-    telefone_f = forma_contato # Usamos o campo de endereço para salvar o contato direto se preferir
 else:
-    # Lógica normal para as outras finalidades
     if df_para.empty:
         st.warning("⚠️ Lista de clientes vazia.")
     else:
@@ -123,7 +107,6 @@ else:
 
 # --- FORMULÁRIO DE FINALIZAÇÃO ---
 with st.form("form_agendamento"):
-    # Aqui unificamos o que você digita no campo de observação com os detalhes
     obs = st.text_area("Observações Adicionais (Detalhes da Visita)")
     enviar = st.form_submit_button("🚀 CONFIRMAR AGENDAMENTO")
     
@@ -134,31 +117,33 @@ with st.form("form_agendamento"):
             # Auditoria de Horário (Brasília)
             agora_br = (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M:%S")
             
+            # Unificação do endereço com as observações para a coluna H
+            detalhes_para_planilha = f"Endereço: {endereco_f} | Obs: {obs}" if finalidade == "PROSPECCAO" else f"{endereco_f} | Obs: {obs}"
+
             # --- MONTAGEM DA LINHA COMPLETA (ORDEM RÍGIDA A até N) ---
-            # Forçamos cada dado na sua respectiva "gaveta" (coluna)
+            # Cada posição nesta lista é uma coluna física no Google Sheets
             nova_linha = [
-                data_v.strftime("%d/%m/%Y"),    # A - DATA
-                hora_v.strftime("%H:%M"),       # B - HORARIO
-                finalidade,                     # C - FINALIDADE
-                cliente_f,                      # D - CLIENTE
-                orc_num,                        # E - ORCAMENTO
-                vlr_f,                          # F - VALOR TOTAL
-                "NAO",                          # G - GEROU ORC
-                endereco_f,                     # H - ENDERECO (Aqui fica o detalhe inicial)
-                contato_f,                      # I - CONTATO
-                st.session_state.user_data['nome'], # J - USUARIO
-                agora_br,                       # K - INCLUSAO (LOG)
-                "NAO",                          # L - REALIZADA
-                "",                             # M - FOLLOW-UP
-                ""                              # N - RELATO FINAL (Espaço para o Popup preencher depois)
+                data_v.strftime("%d/%m/%Y"),           # A - DATA
+                hora_v.strftime("%H:%M"),              # B - HORARIO
+                finalidade,                            # C - FINALIDADE
+                cliente_f,                             # D - CLIENTE
+                orc_num,                               # E - ORCAMENTO
+                vlr_f,                                 # F - VALOR TOTAL
+                "NAO",                                 # G - GEROU ORC
+                detalhes_para_planilha,                # H - ENDERECO (DETALHES DA VISITA)
+                contato_f,                             # I - CONTATO
+                st.session_state.user_data['nome'],    # J - Usuario
+                agora_br,                              # K - INCLUSAO
+                "NAO",                                 # L - REALIZADA
+                "",                                    # M - FOLLOW-UP
+                ""                                     # N - RELATO FINAL (Notas do Popup)
             ]
             
             try:
-                # Conexão direta para evitar o erro de deslocamento do DataFrame
                 sh = conectar_google_sheets()
                 worksheet = sh.worksheet("Agendamentos")
                 
-                # O comando append_row com a lista garante que comece na Coluna A
+                # O uso do append_row (singular) com a lista direta impede o deslocamento de colunas
                 worksheet.append_row(nova_linha, value_input_option='RAW')
                 
                 st.balloons()
