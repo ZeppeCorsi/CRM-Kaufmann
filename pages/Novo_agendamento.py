@@ -77,17 +77,19 @@ vlr_f = "0,00"
 orc_num = ""
 endereco_f = ""
 contato_f = ""
+telefone_f = ""
 
 # --- LÓGICA CONDICIONAL POR FINALIDADE ---
 if finalidade == "PROSPECCAO":
     st.info("💡 **Modo Prospecção:** Digite os dados manualmente abaixo.")
     cliente_f = st.text_input("Nome da Empresa (Novo Cliente)")
     contato_f = st.text_input("Nome do Contato / Responsável")
+    endereco_f = st.text_input("Endereço ou Referência")
     forma_contato = st.text_input("Telefone ou E-mail de Contato")
     # Para prospecção, limpamos os valores de orçamento
     vlr_f = "0,00"
     orc_num = ""
-    endereco_f = forma_contato # Usamos o campo de endereço para salvar o contato direto se preferir
+    telefone_f = forma_contato # Usamos o campo de endereço para salvar o contato direto se preferir
 else:
     # Lógica normal para as outras finalidades
     if df_para.empty:
