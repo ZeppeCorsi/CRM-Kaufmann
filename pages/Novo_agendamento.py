@@ -130,35 +130,34 @@ with st.form("form_agendamento"):
         if not cliente_f:
             st.error("❌ Erro: Informe o nome do cliente antes de confirmar.")
         else:
-            detalhes_completos = f"Endereço: {endereco_f} | Obs: {obs}"
-            
             # Auditoria de Horário (Brasília)
-            agora_utc = datetime.now()
-            agora_br = agora_utc - timedelta(hours=3)
+            agora_br = (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M:%S")
             
-            # Criando o registro exatamente no formato da sua planilha
-            dados_para_salvar = {
-                        "DATA": data_v.strftime("%d/%m/%Y"),           # Coluna A
-                        "HORARIO": hora_v.strftime("%H:%M"),           # Coluna B
-                        "FINALIDADE": finalidade,                      # Coluna C
-                        "CLIENTE": cliente_f,                          # Coluna D
-                        "ORCAMENTO": orc_num,                          # Coluna E
-                        "VALOR TOTAL": vlr_f,                          # Coluna F
-                        "GEROU ORC": "NAO",                            # Coluna G (Exemplo baseado na sua imagem)
-                        "ENDERECO": endereco_f,                        # Coluna H
-                        "CONTATO": contato_f,                          # Coluna I
-                        "USUARIO": st.session_state.user_data['nome'], # Coluna J
-                        "DATA_HORA_LOG": agora_br.strftime("%d/%m/%Y %H:%M:%S"), # Coluna K
-                        "REALIZADA": "NAO",                            # Coluna L
-                        "FOLLOW-UP": "",                               # Coluna M
-                        "RELATO FINAL": ""                             # Coluna N
-                    }
+            # --- MONTAGEM DA LISTA NA ORDEM EXATA DA PLANILHA (A até N) ---
+            # Cada linha aqui corresponde a uma letra da coluna no Sheets
+            linha_dados = [
+                data_v.strftime("%d/%m/%Y"),    # A - DATA
+                hora_v.strftime("%H:%M"),       # B - HORARIO
+                finalidade,                     # C - FINALIDADE
+                cliente_f,                      # D - CLIENTE
+                orc_num,                        # E - ORCAMENTO
+                vlr_f,                          # F - VALOR TOTAL
+                "NAO",                          # G - GEROU ORC
+                endereco_f,                     # H - ENDERECO
+                contato_f,                      # I - CONTATO
+                st.session_state.user_data['nome'], # J - USUARIO
+                agora_br,                       # K - INCLUSAO (LOG)
+                "NAO",                          # L - REALIZADA
+                "",                             # M - FOLLOW-UP
+                ""                              # N - RELATO FINAL
+            ]
             
-            novo_registro = pd.DataFrame([dados_para_salvar])
+            # Convertemos para DataFrame apenas para manter compatibilidade com sua função salvar
+            novo_registro = pd.DataFrame([linha_dados])
             
             if salvar_agendamento(novo_registro):
                 st.balloons()
-                st.success("✅ Agendamento gravado com sucesso!")
+                st.success("✅ Agendamento gravado com sucesso nas colunas corretas!")
                 t_module.sleep(2)
                 st.rerun()
 
