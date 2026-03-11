@@ -137,19 +137,24 @@ with st.form("form_agendamento"):
             agora_br = agora_utc - timedelta(hours=3)
             
             # Criando o registro exatamente no formato da sua planilha
-            novo_registro = pd.DataFrame([{
-                "DATA": data_v.strftime("%d/%m/%Y"), 
-                "HORA": hora_v.strftime("%H:%M"),
-                "FINALIDADE": finalidade,
-                "CLIENTE": cliente_f,
-                "ORCAMENTO": orc_num, 
-                "VALOR TOTAL": vlr_f, 
-                "REALIZADA": "NAO", 
-                "DETALHES DA VISITA": detalhes_completos, 
-                "NOME DO CONTATO": contato_f,
-                "USUARIO_INCLUSAO": st.session_state.user_data['nome'], 
-                "DATA_HORA_LOG": agora_br.strftime("%d/%m/%Y %H:%M:%S")
-            }])
+            dados_para_salvar = {
+                        "DATA": data_v.strftime("%d/%m/%Y"),           # Coluna A
+                        "HORARIO": hora_v.strftime("%H:%M"),           # Coluna B
+                        "FINALIDADE": finalidade,                      # Coluna C
+                        "CLIENTE": cliente_f,                          # Coluna D
+                        "ORCAMENTO": orc_num,                          # Coluna E
+                        "VALOR TOTAL": vlr_f,                          # Coluna F
+                        "GEROU ORC": "NAO",                            # Coluna G (Exemplo baseado na sua imagem)
+                        "ENDERECO": endereco_f,                        # Coluna H
+                        "CONTATO": contato_f,                          # Coluna I
+                        "USUARIO": st.session_state.user_data['nome'], # Coluna J
+                        "DATA_HORA_LOG": agora_br.strftime("%d/%m/%Y %H:%M:%S"), # Coluna K
+                        "REALIZADA": "NAO",                            # Coluna L
+                        "FOLLOW-UP": "",                               # Coluna M
+                        "RELATO FINAL": ""                             # Coluna N
+                    }
+            
+            novo_registro = pd.DataFrame([dados_para_salvar])
             
             if salvar_agendamento(novo_registro):
                 st.balloons()
