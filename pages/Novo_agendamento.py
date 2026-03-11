@@ -123,6 +123,7 @@ else:
 
 # --- FORMULÁRIO DE FINALIZAÇÃO ---
 with st.form("form_agendamento"):
+    # Aqui unificamos o que você digita no campo de observação com os detalhes
     obs = st.text_area("Observações Adicionais (Detalhes da Visita)")
     enviar = st.form_submit_button("🚀 CONFIRMAR AGENDAMENTO")
     
@@ -133,9 +134,9 @@ with st.form("form_agendamento"):
             # Auditoria de Horário (Brasília)
             agora_br = (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M:%S")
             
-            # --- MONTAGEM DA LISTA NA ORDEM EXATA DA PLANILHA (A até N) ---
-            # Cada linha aqui corresponde a uma letra da coluna no Sheets
-            linha_dados = [
+            # --- MONTAGEM DA LINHA COMPLETA (ORDEM RÍGIDA A até N) ---
+            # Forçamos cada dado na sua respectiva "gaveta" (coluna)
+            nova_linha = [
                 data_v.strftime("%d/%m/%Y"),    # A - DATA
                 hora_v.strftime("%H:%M"),       # B - HORARIO
                 finalidade,                     # C - FINALIDADE
@@ -143,23 +144,30 @@ with st.form("form_agendamento"):
                 orc_num,                        # E - ORCAMENTO
                 vlr_f,                          # F - VALOR TOTAL
                 "NAO",                          # G - GEROU ORC
-                endereco_f,                     # H - ENDERECO
+                endereco_f,                     # H - ENDERECO (Aqui fica o detalhe inicial)
                 contato_f,                      # I - CONTATO
                 st.session_state.user_data['nome'], # J - USUARIO
                 agora_br,                       # K - INCLUSAO (LOG)
                 "NAO",                          # L - REALIZADA
                 "",                             # M - FOLLOW-UP
-                ""                              # N - RELATO FINAL
+                ""                              # N - RELATO FINAL (Espaço para o Popup preencher depois)
             ]
             
-            # Convertemos para DataFrame apenas para manter compatibilidade com sua função salvar
-            novo_registro = pd.DataFrame([linha_dados])
-            
-            if salvar_agendamento(novo_registro):
+            try:
+                # Conexão direta para evitar o erro de deslocamento do DataFrame
+                sh = conectar_google_sheets()
+                worksheet = sh.worksheet("Agendamentos")
+                
+                # O comando append_row com a lista garante que comece na Coluna A
+                worksheet.append_row(nova_linha, value_input_option='RAW')
+                
                 st.balloons()
-                st.success("✅ Agendamento gravado com sucesso nas colunas corretas!")
+                st.success("✅ Agendamento gravado com sucesso na Coluna A!")
+                st.cache_data.clear()
                 t_module.sleep(2)
                 st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao salvar: {e}")
 
 st.divider()
 if st.button("⬅️ Voltar para o Início"):
