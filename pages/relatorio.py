@@ -29,7 +29,7 @@ def carregar_dados_relatorio():
         if not data: 
             return pd.DataFrame()
         df = pd.DataFrame(data)
-        # Padroniza nomes de colunas para evitar erros de digitação
+        # Padroniza nomes de colunas para garantir leitura da Coluna N
         df.columns = [str(c).strip().upper() for c in df.columns]
         return df
     except Exception as e:
@@ -43,12 +43,11 @@ st.title("📊 Relatório de Visitas e Prospecções")
 df_rel = carregar_dados_relatorio()
 
 if df_rel.empty:
-    st.warning("⚠️ Nenhum dado encontrado na aba Agendamentos ou aba inexistente.")
+    st.warning("⚠️ Nenhum dado encontrado na aba Agendamentos.")
 else:
-    # Tratamento de Datas
+    # Tratamento de Datas e Valores
     df_rel['DATA_DT'] = pd.to_datetime(df_rel['DATA'], dayfirst=True, errors='coerce')
     
-    # Tratamento de Valores Numéricos
     def limpar_valor(v):
         try:
             return float(str(v).replace('R$', '').replace('.', '').replace(',', '.').strip())
@@ -57,76 +56,69 @@ else:
     df_rel['VALOR_NUM'] = df_rel['VALOR TOTAL'].apply(limpar_valor)
 
     # --- 4. FILTROS LATERAIS ---
-    st.sidebar.header("Filtros de Análise")
-    data_inicio = st.sidebar.date_input("Data Início", value=datetime.now() - timedelta(days=30))
-    data_fim = st.sidebar.date_input("Data Fim", value=datetime.now())
+    st.sidebar.header("Filtros")
+    data_inicio = st.sidebar.date_input("Início", value=datetime.now() - timedelta(days=30))
+    data_fim = st.sidebar.date_input("Fim", value=datetime.now())
     
-    # Aplicar Filtro de Período
     mask = (df_rel['DATA_DT'].dt.date >= data_inicio) & (df_rel['DATA_DT'].dt.date <= data_fim)
     df_filtrado = df_rel.loc[mask].copy()
 
-    # Separar Visitas Reais (Ignora Reagendamentos para estatística)
+    # Visitas Reais (Ignora REAGENDADA nas métricas principais)
     df_visitas_reais = df_filtrado[df_filtrado['FINALIDADE'] != "REAGENDADA"].copy()
 
-    # --- 5. EXIBIÇÃO DE MÉTRICAS ---
-    st.subheader(f"📌 Resumo: {data_inicio.strftime('%d/%m/%Y')} até {data_fim.strftime('%d/%m/%Y')}")
-    
+    # --- 5. MÉTRICAS ---
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total de Visitas", len(df_visitas_reais))
+    m1.metric("Total Visitas", len(df_visitas_reais))
     m2.metric("Prospecções", len(df_visitas_reais[df_visitas_reais['FINALIDADE'] == "PROSPECCAO"]))
     m3.metric("Orçamentos", len(df_visitas_reais[df_visitas_reais['FINALIDADE'] == "ORCAMENTO"]))
     m4.metric("Pós-Venda", len(df_visitas_reais[df_visitas_reais['FINALIDADE'] == "POS VENDA"]))
 
     st.divider()
 
-    # --- 6. ANÁLISES GRÁFICAS ---
-    col_graf1, col_graf2 = st.columns(2)
-
-    with col_graf1:
-        st.write("### 🏆 Clientes mais Visitados")
-        if not df_visitas_reais.empty:
-            top_clientes = df_visitas_reais['CLIENTE'].value_counts().head(10)
-            st.bar_chart(top_clientes)
+    # --- 6. DETALHES DAS VISITAS (COLUNA N) ---
+    st.subheader("📝 Relatos e Notas das Visitas")
+    # Filtramos apenas visitas que possuem algum relato na Coluna N
+    # O nome exato da coluna na sua planilha é "DETALHES DA VISITA" (Coluna N)
+    col_detalhes = "DETALHES DA VISITA" 
+    
+    if col_detalhes in df_filtrado.columns:
+        df_com_relato = df_filtrado[df_filtrado[col_detalhes] != ""].copy()
+        if not df_com_relato.empty:
+            for _, row in df_com_relato.iterrows():
+                with st.expander(f"📌 {row['DATA']} - {row['CLIENTE']} ({row['FINALIDADE']})"):
+                    st.write(f"**Vendedor:** {row['USUARIO']}")
+                    st.write(f"**Relato Final:** {row[col_detalhes]}") # Exibe o conteúdo da Coluna N
+                    if 'DATA FOLLOW' in row and row['DATA FOLLOW']:
+                        st.info(f"📅 Próximo Follow-up: {row['DATA FOLLOW']}")
         else:
-            st.info("Sem dados para o gráfico.")
+            st.info("Nenhuma visita com relato preenchido no período.")
+    else:
+        st.error(f"Coluna '{col_detalhes}' não encontrada na planilha.")
 
-    with col_graf2:
-        st.write("### 💰 Cliente com Maior Valor Acumulado")
-        if not df_visitas_reais.empty:
-            # Agrupa por cliente e soma o valor total
-            vendas_cliente = df_visitas_reais.groupby('CLIENTE')['VALOR_NUM'].sum().sort_values(ascending=False).head(1)
-            if not vendas_cliente.empty:
-                cliente_topo = vendas_cliente.index[0]
-                valor_topo = vendas_cliente.values[0]
-                st.info(f"O destaque é **{cliente_topo}**")
-                st.metric("Total Estimado", f"R$ {valor_topo:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-        else:
-            st.info("Sem dados financeiros.")
+    # --- 7. ANÁLISES GRÁFICAS ---
+    st.divider()
+    c_graf1, c_graf2 = st.columns(2)
 
-    # --- 7. ANÁLISE POR REGIÃO ---
-    st.write("### 📍 Regiões (Extraído do Endereço)")
-    if not df_visitas_reais.empty:
-        # Tenta pegar a última parte do endereço (geralmente a cidade)
+    with c_graf1:
+        st.write("### 🏆 Top Clientes")
+        st.bar_chart(df_visitas_reais['CLIENTE'].value_counts().head(5))
+
+    with c_graf2:
+        st.write("### 📍 Top Regiões")
         def extrair_regiao(end):
             partes = str(end).split(',')
-            if len(partes) > 1:
-                return partes[-1].strip().upper()
-            return str(end)[:25].upper() # Fallback para os primeiros caracteres se não houver vírgula
-
+            return partes[-1].strip().upper() if len(partes) > 1 else "N/A"
         df_visitas_reais['REGIAO'] = df_visitas_reais['ENDERECO'].apply(extrair_regiao)
-        regioes = df_visitas_reais['REGIAO'].value_counts().head(5)
-        st.table(regioes)
+        st.table(df_visitas_reais['REGIAO'].value_counts().head(5))
 
-    # --- 8. PRÉVIA DA PLANILHA ---
-    st.divider()
-    st.write("### 📋 Prévia dos Dados Filtrados")
-    # Colunas que existem na sua planilha
-    colunas_exibicao = ['DATA', 'HORARIO', 'FINALIDADE', 'CLIENTE', 'VALOR TOTAL', 'USUARIO']
-    # Filtrar apenas colunas que existem no DF para evitar erro
-    colunas_df = [c for c in colunas_exibicao if c in df_filtrado.columns]
-    st.dataframe(df_filtrado[colunas_df], use_container_width=True)
+    # --- 8. TABELA COMPLETA ---
+    st.write("### 📋 Tabela Geral (A até N)")
+    # Lista de colunas para exibição na tabela
+    cols_view = ['DATA', 'CLIENTE', 'FINALIDADE', 'VALOR TOTAL', 'USUARIO', 'REALIZADA', col_detalhes]
+    cols_existentes = [c for c in cols_view if c in df_filtrado.columns]
+    st.dataframe(df_filtrado[cols_existentes], use_container_width=True)
 
 st.sidebar.divider()
-if st.sidebar.button("🔄 Atualizar Relatório"):
+if st.sidebar.button("🔄 Atualizar"):
     st.cache_data.clear()
     st.rerun()
