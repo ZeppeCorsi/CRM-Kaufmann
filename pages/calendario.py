@@ -67,7 +67,7 @@ def popup_finalizar_visita(idx, cliente):
             ws = sh.worksheet("Agendamentos")
             linha = int(idx) + 2
             ws.update_cell(linha, 12, "SIM") # Coluna L: REALIZADA
-            ws.update_cell(linha, 8, f"RELATO: {relato}") # Coluna H: OBS
+            ws.update_cell(linha, 14, f"RELATO: {relato}") # Coluna N: OBS
             ws.update_cell(linha, 13, data_follow.strftime("%d/%m/%Y")) # Coluna M: FOLLOW-UP
             st.success("Visita finalizada!")
             st.cache_data.clear()
