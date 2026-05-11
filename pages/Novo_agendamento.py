@@ -52,11 +52,12 @@ st.caption(f"Logado como: **{st.session_state.user_data['nome']}** | Perfil: **{
 with st.spinner('Sincronizando com Google Sheets...'):
     df_para = carregar_aba("Para_Agendar")
     df_orc_gerais = carregar_aba("Orcamentos Gerais")
+    df_demo = carregar_aba("Demo e Locacao")
 
 # Configurações Iniciais de Colunas
 col1, col2, col3 = st.columns([2, 2, 1])
 data_v = col1.date_input("Data da Visita", value=date.today(), format="DD/MM/YYYY")
-finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA", "REAGENDADA"])
+finalidade = col2.selectbox("Finalidade", ["ORCAMENTO", "PROSPECCAO", "POS VENDA", "REAGENDADA", "DEMONSTRACAO"])
 hora_v = col3.time_input("Hora da Visita", value=time(9, 0))
 
 # Variáveis de dados
@@ -75,6 +76,26 @@ if finalidade == "PROSPECCAO":
     forma_contato = st.text_input("Telefone ou E-mail de Contato")
     vlr_f = "0,00"
     orc_num = ""
+elif finalidade == "DEMONSTRACAO":
+    if df_demo.empty:
+        st.warning("⚠️ Lista de demonstrações vazia.")
+    else:
+        lista_demo = sorted(df_demo["A1_NOME"].unique().tolist()) if "A1_NOME" in df_demo.columns else []
+        cliente_selecionado = st.selectbox("Selecione o Cliente (Demo/Locação)", options=[""] + lista_demo)
+
+        if cliente_selecionado:
+            cliente_f = cliente_selecionado
+            dados_demo = df_demo[df_demo["A1_NOME"].str.strip() == cliente_f.strip()]
+            if not dados_demo.empty:
+                endereco_f = dados_demo.iloc[0].get("A1_MUN", "")
+                orc_num = dados_demo.iloc[0].get("C6_NUM", "")
+                vlr_f = "0,00"
+
+            c_mun, c_ped = st.columns(2)
+            c_mun.metric("📍 Município", endereco_f if endereco_f else "—")
+            c_ped.metric("📋 Nº do Pedido", orc_num if orc_num else "S/N")
+
+            contato_f = st.text_input("Nome do Contato / Responsável")
 else:
     if df_para.empty:
         st.warning("⚠️ Lista de clientes vazia.")
@@ -82,7 +103,7 @@ else:
         col_cli = [c for c in df_para.columns if 'CLIENTE' in c]
         lista_cli = sorted(df_para[col_cli[0]].unique().tolist()) if col_cli else []
         cliente_selecionado = st.selectbox("Selecione o Cliente", options=[""] + lista_cli)
-        
+
         if cliente_selecionado:
             cliente_f = cliente_selecionado
             dados_cli = df_para[df_para[col_cli[0]].str.strip() == cliente_f.strip()]
@@ -90,7 +111,7 @@ else:
                 vlr_raw = dados_cli.iloc[0].get("VLR TOTAL", "0,00")
                 vlr_f = formatar_br(vlr_raw)
                 endereco_f = dados_cli.iloc[0].get("ENDEREÇO", "")
-            
+
             if not df_orc_gerais.empty:
                 dados_orc = df_orc_gerais[df_orc_gerais["CLIENTE"].str.strip() == cliente_f.strip()]
                 if not dados_orc.empty:
@@ -99,10 +120,10 @@ else:
             c_vlr, c_orc = st.columns(2)
             c_vlr.metric("💰 Valor Estimado", f"R$ {vlr_f}")
             c_orc.metric("📄 Orçamento Atual", orc_num if orc_num else "S/N")
-            
+
             if endereco_f:
                 st.info(f"📍 **Endereço Base:** {endereco_f}")
-            
+
             contato_f = st.text_input("Nome do Contato / Responsável")
 
 # --- FORMULÁRIO DE FINALIZAÇÃO ---
