@@ -60,15 +60,23 @@ def popup_finalizar_visita(idx, cliente):
     st.subheader(f"🏁 Finalizar Visita: {cliente}")
     relato = st.text_area("Notas da visita:", placeholder="O que foi acordado?")
     data_follow = st.date_input("Agendar Follow-up para:", value=date.today() + timedelta(days=7))
-    
+
+    temperatura = st.radio(
+        "Temperatura da visita:",
+        options=["🔥 QUENTE", "🌡️ MORNO", "🧊 FRIO"],
+        horizontal=True
+    )
+
     if st.button("Gravar Resultado"):
         try:
+            temp_valor = temperatura.split(" ", 1)[1]  # remove o emoji, salva só QUENTE/MORNO/FRIO
             sh = conectar_google_sheets()
             ws = sh.worksheet("Agendamentos")
             linha = int(idx) + 2
-            ws.update_cell(linha, 12, "SIM") # Coluna L: REALIZADA
-            ws.update_cell(linha, 14, f"RELATO: {relato}") # Coluna N: OBS
+            ws.update_cell(linha, 12, "SIM")                          # Coluna L: REALIZADA
+            ws.update_cell(linha, 14, f"RELATO: {relato}")            # Coluna N: OBS
             ws.update_cell(linha, 13, data_follow.strftime("%d/%m/%Y")) # Coluna M: FOLLOW-UP
+            ws.update_cell(linha, 15, temp_valor)                     # Coluna O: TEMPERATURA
             st.success("Visita finalizada!")
             st.cache_data.clear()
             t_module.sleep(1)
