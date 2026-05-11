@@ -85,9 +85,14 @@ else:
         df_com_relato = df_filtrado[df_filtrado[col_detalhes] != ""].copy()
         if not df_com_relato.empty:
             for _, row in df_com_relato.iterrows():
-                with st.expander(f"📌 {row['DATA']} - {row['CLIENTE']} ({row['FINALIDADE']})"):
+                temp = str(row.get('TEMPERATURA', '')).strip()
+                icone_temp = {"QUENTE": "🔥", "MORNO": "🌡️", "FRIO": "🧊"}.get(temp.upper(), "")
+                label_temp = f" | {icone_temp} {temp}" if temp else ""
+                with st.expander(f"📌 {row['DATA']} - {row['CLIENTE']} ({row['FINALIDADE']}){label_temp}"):
                     st.write(f"**Vendedor:** {row['USUARIO']}")
-                    st.write(f"**Relato Final:** {row[col_detalhes]}") # Exibe o conteúdo da Coluna N
+                    st.write(f"**Relato Final:** {row[col_detalhes]}")
+                    if temp:
+                        st.write(f"**Temperatura:** {icone_temp} {temp}")
                     if 'DATA FOLLOW' in row and row['DATA FOLLOW']:
                         st.info(f"📅 Próximo Follow-up: {row['DATA FOLLOW']}")
         else:
@@ -112,9 +117,8 @@ else:
         st.table(df_visitas_reais['REGIAO'].value_counts().head(5))
 
     # --- 8. TABELA COMPLETA ---
-    st.write("### 📋 Tabela Geral (A até N)")
-    # Lista de colunas para exibição na tabela
-    cols_view = ['DATA', 'CLIENTE', 'FINALIDADE', 'VALOR TOTAL', 'USUARIO', 'REALIZADA', col_detalhes]
+    st.write("### 📋 Tabela Geral")
+    cols_view = ['DATA', 'CLIENTE', 'FINALIDADE', 'VALOR TOTAL', 'USUARIO', 'REALIZADA', 'TEMPERATURA', col_detalhes]
     cols_existentes = [c for c in cols_view if c in df_filtrado.columns]
     st.dataframe(df_filtrado[cols_existentes], use_container_width=True)
 
